@@ -2,6 +2,7 @@
 #include <jni.h>
 #include <android/log.h>
 #include <gst/gst.h>
+#include <gst/audio/audio.h>
 #include <pthread.h>
 
 GST_DEBUG_CATEGORY_STATIC (debug_category);
@@ -19,6 +20,9 @@ GST_DEBUG_CATEGORY_STATIC (debug_category);
 # define SET_CUSTOM_DATA(env, thiz, fieldID, data) (*env)->SetLongField (env, thiz, fieldID, (jlong)(jint)data)
 #endif
 
+#define CHUNK_SIZE 1024         /* Amount of bytes we are sending in each buffer */
+#define SAMPLE_RATE 44100       /* Samples per second we are sending */
+
 /* Structure to contain all our information, so we can pass it to callbacks */
 typedef struct _CustomData
 {
@@ -27,6 +31,16 @@ typedef struct _CustomData
   GMainContext *context;        /* GLib context used to run the main loop */
   GMainLoop *main_loop;         /* GLib main loop */
   gboolean initialized;         /* To avoid informing the UI multiple times about the initialization */
+  GstElement *app_source;
+  GstElement *audio_convert;
+  GstElement *audio_resample;
+  GstElement *audio_sink;
+
+  guint64 num_samples;          /* Number of samples generated so far (for timestamp generation) */
+  gfloat a, b, c, d;            /* For waveform generation */
+
+  guint sourceid;               /* To control the GSource */
+
 } CustomData;
 
 /* These global variables cache values which are not changing during execution */
@@ -150,6 +164,81 @@ check_initialization_complete (CustomData * data)
   }
 }
 
+/* This method is called by the idle GSource in the mainloop, to feed CHUNK_SIZE bytes into appsrc.
+ * The idle handler is added to the mainloop when appsrc requests us to start sending data (need-data signal)
+ * and is removed when appsrc has enough data (enough-data signal).
+ */
+static gboolean
+push_data (CustomData * data)
+{
+    GstBuffer *buffer;
+    GstFlowReturn ret;
+    int i;
+    GstMapInfo map;
+    gint16 *raw;
+    gint num_samples = CHUNK_SIZE / 2;    /* Because each sample is 16 bits */
+    gfloat freq;
+
+    /* Create a new empty buffer */
+    buffer = gst_buffer_new_and_alloc (CHUNK_SIZE);
+
+    /* Set its timestamp and duration */
+    GST_BUFFER_TIMESTAMP (buffer) =
+            gst_util_uint64_scale (data->num_samples, GST_SECOND, SAMPLE_RATE);
+    GST_BUFFER_DURATION (buffer) =
+            gst_util_uint64_scale (num_samples, GST_SECOND, SAMPLE_RATE);
+
+    /* Generate some psychodelic waveforms */
+    gst_buffer_map (buffer, &map, GST_MAP_WRITE);
+    raw = (gint16 *) map.data;
+    data->c += data->d;
+    data->d -= data->c / 1000;
+    freq = 1100 + 1000 * data->d;
+    for (i = 0; i < num_samples; i++) {
+        data->a += data->b;
+        data->b -= data->a / freq;
+        raw[i] = (gint16) (500 * data->a);
+    }
+    gst_buffer_unmap (buffer, &map);
+    data->num_samples += num_samples;
+
+    /* Push the buffer into the appsrc */
+    g_signal_emit_by_name (data->app_source, "push-buffer", buffer, &ret);
+
+    /* Free the buffer now that we are done with it */
+    gst_buffer_unref (buffer);
+
+    if (ret != GST_FLOW_OK) {
+        /* We got some error, stop sending data */
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+/* This signal callback triggers when appsrc needs data-> Here, we add an idle handler
+ * to the mainloop to start pushing data into the appsrc */
+static void
+start_feed (GstElement * source, guint size, CustomData * data)
+{
+    if (data->sourceid == 0) {
+        g_print ("Start feeding\n");
+        data->sourceid = g_idle_add ((GSourceFunc) push_data, data);
+    }
+}
+
+/* This callback triggers when appsrc has enough data and we can stop sending.
+ * We remove the idle handler from the mainloop */
+static void
+stop_feed (GstElement * source, CustomData * data)
+{
+    if (data->sourceid != 0) {
+        g_print ("Stop feeding\n");
+        g_source_remove (data->sourceid);
+        data->sourceid = 0;
+    }
+}
+
 /* Main method for the native code. This is executed on its own thread. */
 static void *
 app_function (void *userdata)
@@ -163,21 +252,59 @@ app_function (void *userdata)
   GST_DEBUG ("Creating pipeline in CustomData at %p", data);
 
   /* Create our own GLib Main Context and make it the default one */
-  data->context = g_main_context_new ();
-  g_main_context_push_thread_default (data->context);
+  data->context = g_main_context_default ();
+//  g_main_context_push_thread_default (data->context);
 
-  /* Build pipeline */
-  data->pipeline =
-      gst_parse_launch
-      ("audiotestsrc ! audioconvert ! audioresample ! autoaudiosink", &error);
-  if (error) {
-    gchar *message =
-        g_strdup_printf ("Unable to build pipeline: %s", error->message);
-    g_clear_error (&error);
-    set_ui_message (message, data);
-    g_free (message);
-    return NULL;
-  }
+    data->a = data->c = 0;
+    data->b = data->d = 1;
+    data->num_samples = 0;
+    data->sourceid = 0;
+
+    /* Create the elements */
+    data->app_source = gst_element_factory_make ("appsrc", "audio_source");
+    data->audio_convert =
+            gst_element_factory_make ("audioconvert", "audio_convert1");
+    data->audio_resample =
+            gst_element_factory_make ("audioresample", "audio_resample");
+    data->audio_sink = gst_element_factory_make ("autoaudiosink", "audio_sink");
+
+    /* Create the empty pipeline */
+    data->pipeline = gst_pipeline_new ("test-pipeline");
+
+    if (!data->pipeline || !data->app_source || !data->audio_convert || !data->audio_resample || !data->audio_sink) {
+        gchar *message =
+                g_strdup_printf ("Unable to build pipeline");
+        set_ui_message (message, data);
+        g_free (message);
+        return NULL;
+    }
+
+    GstAudioInfo info;
+    GstCaps *audio_caps;
+    /* Configure appsrc */
+    gst_audio_info_set_format (&info, GST_AUDIO_FORMAT_S16, SAMPLE_RATE, 1, NULL);
+    audio_caps = gst_audio_info_to_caps (&info);
+    g_object_set (data->app_source, "caps", audio_caps, "format", GST_FORMAT_TIME,
+                  NULL);
+    g_signal_connect (data->app_source, "need-data", G_CALLBACK (start_feed),
+                      data);
+    g_signal_connect (data->app_source, "enough-data", G_CALLBACK (stop_feed),
+                      data);
+
+    gst_caps_unref (audio_caps);
+
+    /* Link all elements that can be automatically linked because they have "Always" pads */
+    gst_bin_add_many (GST_BIN (data->pipeline), data->app_source, data->audio_convert, data->audio_resample,
+                      data->audio_sink, NULL);
+    if (gst_element_link_many (data->app_source, data->audio_convert,
+                               data->audio_resample, data->audio_sink, NULL) != TRUE) {
+        gst_object_unref (data->pipeline);
+        gchar *message =
+                g_strdup_printf ("Elements could not be linked");
+        set_ui_message (message, data);
+        g_free (message);
+        return NULL;
+    }
 
   /* Instruct the bus to emit signals for each received message, and connect to the interesting signals */
   bus = gst_element_get_bus (data->pipeline);
@@ -196,6 +323,9 @@ app_function (void *userdata)
   GST_DEBUG ("Entering main loop... (CustomData:%p)", data);
   data->main_loop = g_main_loop_new (data->context, FALSE);
   check_initialization_complete (data);
+
+    gst_element_set_state (data->pipeline, GST_STATE_PLAYING);
+
   g_main_loop_run (data->main_loop);
   GST_DEBUG ("Exited main loop");
   g_main_loop_unref (data->main_loop);
@@ -227,6 +357,7 @@ gst_native_init (JNIEnv * env, jobject thiz)
   data->app = (*env)->NewGlobalRef (env, thiz);
   GST_DEBUG ("Created GlobalRef for app object at %p", data->app);
   pthread_create (&gst_app_thread, NULL, &app_function, data);
+    data->sourceid = 0;
 }
 
 /* Quit the main loop, remove the native thread and free resources */
