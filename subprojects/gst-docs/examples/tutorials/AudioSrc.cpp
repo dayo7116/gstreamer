@@ -138,7 +138,6 @@ int test_audio_src(int argc, char* argv[])
   GstCaps* audio_caps;
   GstBus* bus;
 
-  g_setenv("GST_DEBUG", "*:3", TRUE);
   /* Initialize cumstom data structure */
   memset(&data, 0, sizeof(data));
   data.b = 1;                   /* For waveform generation */
@@ -147,6 +146,7 @@ int test_audio_src(int argc, char* argv[])
   /* Initialize GStreamer */
   gst_init(&argc, &argv);
 
+  g_setenv("GST_DEBUG", "*:5", TRUE);
   /* Create the elements */
   data.app_source = gst_element_factory_make("appsrc", "audio_source");
   data.audio_convert =

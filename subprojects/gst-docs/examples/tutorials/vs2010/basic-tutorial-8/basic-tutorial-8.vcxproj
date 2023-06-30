@@ -19,10 +19,12 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\AudioCapture.cpp" />
     <ClCompile Include="..\..\AudioSrc.cpp" />
     <ClCompile Include="..\..\basic-tutorial-8.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\AudioCapture.h" />
     <ClInclude Include="..\..\AudioSrc.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
