@@ -115,7 +115,7 @@ int test_audio_capture(int argc, char* argv[])
   gboolean res;
   GstMapInfo map;
 
-  g_setenv("GST_DEBUG", "*:7", TRUE);
+  g_setenv("GST_DEBUG", "*:5", TRUE);
 
   gst_init(&argc, &argv);
 
@@ -124,48 +124,32 @@ int test_audio_capture(int argc, char* argv[])
       argv[0]);
     //exit(-1);
   }
-  GstElement* appsink_audio, * audio_queue, * pipeline, * audio_filter;
+  GstElement* pipeline, * source, * convert, * resample, * encoder, * sink;
   GstCaps* caps;
 
-  audio_filter = gst_element_factory_make("capsfilter", "audio_filter");
-  //caps = gst_caps_from_string("audio/mpeg, stream-format=(string) raw");
-  caps = gst_caps_new_any();
-  g_object_set(G_OBJECT(audio_filter), "caps", caps, NULL);
+  pipeline = gst_pipeline_new("audio-pipeline");
+
+  source = gst_element_factory_make("wasapi2src", "audio-source");
+  g_object_set(G_OBJECT(source), "device", "{E6327CAD-DCEC-4949-AE8A-991E976A79D2}", "loopback", true, NULL);
+
+  convert = gst_element_factory_make("audioconvert", "audio-convert");
+
+  resample = gst_element_factory_make("audioresample", "audio-resample");
+
+  encoder = gst_element_factory_make("wavenc", "audio-encoder");
+
+  sink = gst_element_factory_make("filesink", "file-sink");
+  g_object_set(G_OBJECT(sink), "location", "D:\\test_audio.wav", NULL);
+
+  gst_bin_add_many(GST_BIN(pipeline), source, convert, resample, encoder, sink, NULL);
+
+  gst_element_link_many(source, convert, resample, encoder, sink, NULL);
+
+  caps = gst_caps_new_simple("audio/x-raw", "format", G_TYPE_STRING, "F32LE", "rate", G_TYPE_INT, 48000, "channels", G_TYPE_INT, 2, NULL);
+  g_object_set(G_OBJECT(source), "caps", caps, NULL);
   gst_caps_unref(caps);
 
-  appsink_audio = gst_element_factory_make("appsink", "appsink_audio");
-
-  g_object_set(G_OBJECT(appsink_audio), "emit-signals", TRUE, "sync", FALSE, NULL);
-  g_signal_connect(appsink_audio, "new-sample", G_CALLBACK(on_new_sample_from_sink), NULL);
-  g_signal_connect(appsink_audio, "eos", G_CALLBACK(eos_cb), NULL);
-
-  audio_queue = gst_element_factory_make("queue", "audio_queue");
-  pipeline = gst_pipeline_new("audio-capture-pipeline");
-
-  GstElement* audiosrc, * audioconvert, * aac_enc, * audio_resample, * audio_src_filter, * aac_parse;
-  aac_parse = gst_element_factory_make("aacparse", "aac_parse");
-  audiosrc = gst_element_factory_make("audiotestsrc", "audiosrc");//wasapisrc
-  //g_object_set(G_OBJECT(audiosrc), "device", "{0.0.1.00000000}.{59abac3a - 90f8 - 4ee1 - 9e4a - 4e34289043d4}", "low-latency", TRUE, "use-audioclient3", TRUE, NULL);
-
-  audio_src_filter = gst_element_factory_make("capsfilter", "audio_src_filter");
-  //caps = gst_caps_from_string("audio/x-raw, rate=(int) { 16000, 24000, 48000 }");
-  caps = gst_caps_new_any();
-  g_object_set(G_OBJECT(audio_src_filter), "caps", caps, NULL);
-  gst_caps_unref(caps);
-
-  audioconvert = gst_element_factory_make("audioconvert", "audioconvert");
-  aac_enc = gst_element_factory_make("avenc_aac", "aac_enc");
-  audio_resample = gst_element_factory_make("audioresample", "audioresample");
-
-  gst_bin_add_many(GST_BIN(pipeline), appsink_audio, audiosrc, audioconvert, aac_enc,
-    audio_queue, audio_filter, audio_resample, audio_src_filter, aac_parse, NULL);
-  if (!gst_element_link_many(audiosrc, audio_resample, audio_queue, audioconvert, audio_src_filter, aac_enc, aac_parse, audio_filter,
-    appsink_audio,
-    NULL)) {
-    g_printerr("Audio elements could not be linked.\n");
-    gst_object_unref(pipeline);
-    return -1;
-  }
+  ret = gst_element_set_state(pipeline, GST_STATE_PLAYING);
 
   GMainLoop* loop = g_main_loop_new(NULL, FALSE);
 
@@ -175,7 +159,6 @@ int test_audio_capture(int argc, char* argv[])
   g_signal_connect(G_OBJECT(bus), "message::error", (GCallback)bus_call, loop);
   gst_object_unref(bus);
 
-  ret = gst_element_set_state(pipeline, GST_STATE_PLAYING);
   if (ret == GST_STATE_CHANGE_FAILURE) {
     g_printerr("Unable to set the pipeline to the playing state.\n");
     return -1;
