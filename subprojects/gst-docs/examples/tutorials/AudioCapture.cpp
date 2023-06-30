@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include <gst/gstbuffer.h>
 
+#include <string>
+
 #define CAPS "video/x-raw,format=RGB,width=160,pixel-aspect-ratio=1/1"
 
 #pragma comment(lib, "gstapp-1.0.lib")
@@ -105,6 +107,79 @@ static gboolean bus_call(GstBus* bus, GstMessage* msg, gpointer data) {
   return TRUE;
 }
 
+class GStructAutoRelease {
+public:
+  GStructAutoRelease(GstStructure* ptr)
+  : m_ptr(ptr){}
+  virtual ~GStructAutoRelease() {
+    if (m_ptr) {
+      gst_structure_free(m_ptr);
+    }
+  }
+
+protected:
+  GstStructure* m_ptr;
+};
+
+std::string get_default_device() {
+  std::string default_device_id;
+
+  GstDeviceMonitor* monitor = gst_device_monitor_new();
+  gst_device_monitor_add_filter(monitor, "Audio/Source", NULL);
+
+  // Start monitoring
+  gst_device_monitor_start(monitor);
+
+  // Get all devices
+  GList* devices = gst_device_monitor_get_devices(monitor);
+  for (GList* iterator = devices; iterator != NULL; iterator = iterator->next) {
+    GstDevice* device = GST_DEVICE(iterator->data);
+
+    GstStructure* properties = gst_device_get_properties(device);
+    if (!properties) {
+      continue;
+    }
+    GStructAutoRelease auto_relase(properties);
+    gboolean is_default = FALSE;
+    if (!gst_structure_has_field(properties, "device.default") || G_TYPE_BOOLEAN != gst_structure_get_field_type(properties, "device.default")) {
+      continue;
+    }
+    gst_structure_get_boolean(properties, "device.default", &is_default);
+    if (!is_default) {
+      continue;
+    }
+
+    if (!gst_structure_has_field(properties, "device.api") || G_TYPE_STRING != gst_structure_get_field_type(properties, "device.api")) {
+      continue;
+    }
+    const gchar* device_api = gst_structure_get_string(properties, "device.api");
+    if (!device_api) {
+      continue;
+    }
+
+    if (0 != g_ascii_strcasecmp(device_api, "wasapi2")) {
+      continue;
+    }
+
+    if (!gst_structure_has_field(properties, "device.id") || G_TYPE_STRING != gst_structure_get_field_type(properties, "device.id")) {
+      continue;
+    }
+
+    const gchar* id = gst_structure_get_string(properties, "device.id");
+    if (id) {
+      default_device_id = id;
+      break;
+    }
+  }
+
+  // Clean up
+  gst_device_monitor_stop(monitor);
+  gst_object_unref(monitor);
+  g_list_free(devices);
+
+  return default_device_id;
+}
+
 int test_audio_capture(int argc, char* argv[])
 {
   GstSample* sample;
@@ -129,7 +204,7 @@ int test_audio_capture(int argc, char* argv[])
   pipeline = gst_pipeline_new("audio-pipeline");
 
   source = gst_element_factory_make("wasapi2src", "audio-source");
-  g_object_set(G_OBJECT(source), "device", "{E6327CAD-DCEC-4949-AE8A-991E976A79D2}", "loopback", true, NULL);
+  g_object_set(G_OBJECT(source), "device", get_default_device().c_str() , "loopback", true, NULL);
 
   convert = gst_element_factory_make("audioconvert", "audio-convert");
 
