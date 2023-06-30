@@ -115,7 +115,7 @@ int test_audio_capture(int argc, char* argv[])
   gboolean res;
   GstMapInfo map;
 
-  g_setenv("GST_DEBUG", "*:5", TRUE);
+  g_setenv("GST_DEBUG", "*:1", TRUE);
 
   gst_init(&argc, &argv);
 
@@ -124,8 +124,7 @@ int test_audio_capture(int argc, char* argv[])
       argv[0]);
     //exit(-1);
   }
-  GstElement* pipeline, * source, * convert, * resample, * encoder, * sink;
-  GstCaps* caps;
+  GstElement* pipeline, * source, * convert, * resample, * encoder, * muxer, * sink;
 
   pipeline = gst_pipeline_new("audio-pipeline");
 
@@ -138,16 +137,15 @@ int test_audio_capture(int argc, char* argv[])
 
   encoder = gst_element_factory_make("wavenc", "audio-encoder");
 
+  encoder = gst_element_factory_make("vorbisenc", "audio-encoder");
+  muxer = gst_element_factory_make("oggmux", "audio-muxer");
+
   sink = gst_element_factory_make("filesink", "file-sink");
-  g_object_set(G_OBJECT(sink), "location", "D:\\test_audio.wav", NULL);
+  g_object_set(G_OBJECT(sink), "location", "D:\\test_audio.ogg", NULL);
 
-  gst_bin_add_many(GST_BIN(pipeline), source, convert, resample, encoder, sink, NULL);
+  gst_bin_add_many(GST_BIN(pipeline), source, encoder, muxer, sink, NULL);
 
-  gst_element_link_many(source, convert, resample, encoder, sink, NULL);
-
-  caps = gst_caps_new_simple("audio/x-raw", "format", G_TYPE_STRING, "F32LE", "rate", G_TYPE_INT, 48000, "channels", G_TYPE_INT, 2, NULL);
-  g_object_set(G_OBJECT(source), "caps", caps, NULL);
-  gst_caps_unref(caps);
+  gst_element_link_many(source, encoder, muxer, sink, NULL);
 
   ret = gst_element_set_state(pipeline, GST_STATE_PLAYING);
 
