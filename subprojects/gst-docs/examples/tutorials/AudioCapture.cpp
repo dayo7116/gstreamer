@@ -19,54 +19,31 @@ static void eos_cb(GstElement* sink, gpointer data) {
   g_print("eos_cb \n");
 }
 
+FILE* g_file = NULL;
+int g_total_count = 0;
 // 回调函数，将音频数据填充到缓冲区中
 static GstFlowReturn on_new_sample_from_sink(GstElement* sink, gpointer data) {
   GstSample* sample = gst_app_sink_pull_sample(GST_APP_SINK(sink));
 
   if (sample) {
-    GstBuffer* buffer;
-    GstCaps* caps;
-    GstStructure* s;
-
-    gint width, height;
-    GstMapInfo map;
-
-    buffer = gst_sample_get_buffer(sample);
+    GstBuffer* buffer = gst_sample_get_buffer(sample);
     guint size = gst_buffer_get_size(buffer);
 
-    /* get the snapshot buffer format now. We set the caps on the appsink so
-   * that it can only be an rgb buffer. The only thing we have not specified
-   * on the caps is the height, which is dependant on the pixel-aspect-ratio
-   * of the source material */
-    caps = gst_sample_get_caps(sample);
-    if (!caps) {
-      g_print("could not get snapshot format\n");
-      exit(-1);
-    }
-    s = gst_caps_get_structure(caps, 0);
-
-    /* we need to get the final caps on the buffer to get the size */
-    /*gboolean res = gst_structure_get_int(s, "width", &width);
-    res |= gst_structure_get_int(s, "height", &height);
-    if (!res) {
-      g_print("could not get snapshot dimension\n");
-      exit(-1);
-    }*/
-
-    /* create pixmap from buffer and save, gstreamer video buffers have a stride
-     * that is rounded up to the nearest multiple of 4 */
-    buffer = gst_sample_get_buffer(sample);
-    /* Mapping a buffer can fail (non-readable) */
+    GstMapInfo map;
     if (gst_buffer_map(buffer, &map, GST_MAP_READ)) {
-#ifdef HAVE_GTK
-      pixbuf = gdk_pixbuf_new_from_data(map.data,
-        GDK_COLORSPACE_RGB, FALSE, 8, width, height,
-        GST_ROUND_UP_4(width * 3), NULL, NULL);
 
-      /* save the pixbuf */
-      gdk_pixbuf_save(pixbuf, "snapshot.png", "png", &error, NULL);
-#endif
+      if (g_file) {
+        fwrite(map.data, sizeof(guint8), map.size, g_file);
+        g_total_count += map.size;
+      }
+
       gst_buffer_unmap(buffer, &map);
+    }
+
+    if (g_total_count > 100 * 1024) {
+      fclose(g_file);
+      g_file = NULL;
+      g_total_count = 0;
     }
     gst_sample_unref(sample);
   }
@@ -199,7 +176,7 @@ int test_audio_capture(int argc, char* argv[])
       argv[0]);
     //exit(-1);
   }
-  GstElement* pipeline, * source, * convert, * resample, * encoder, * muxer, * sink;
+  GstElement* pipeline, * source, * convert, * resample, * encoder, * muxer, * sink, * audio_queue;
 
   pipeline = gst_pipeline_new("audio-pipeline");
 
@@ -215,8 +192,13 @@ int test_audio_capture(int argc, char* argv[])
   encoder = gst_element_factory_make("vorbisenc", "audio-encoder");
   muxer = gst_element_factory_make("oggmux", "audio-muxer");
 
-  sink = gst_element_factory_make("filesink", "file-sink");
-  g_object_set(G_OBJECT(sink), "location", "D:\\test_audio.ogg", NULL);
+  //sink = gst_element_factory_make("filesink", "file-sink");
+  //g_object_set(G_OBJECT(sink), "location", "D:\\test_audio.ogg", NULL);
+  g_file = fopen("D:\\test_audio.ogg", "ab");
+  sink = gst_element_factory_make("appsink", "appsink_audio");
+  g_object_set(G_OBJECT(sink), "emit-signals", TRUE, "sync", FALSE, NULL);
+  g_signal_connect(sink, "new-sample", G_CALLBACK(on_new_sample_from_sink), NULL);
+  g_signal_connect(sink, "eos", G_CALLBACK(eos_cb), NULL);
 
   gst_bin_add_many(GST_BIN(pipeline), source, encoder, muxer, sink, NULL);
 
