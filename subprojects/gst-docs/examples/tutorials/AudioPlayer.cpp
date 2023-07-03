@@ -35,6 +35,7 @@ namespace PLAY {
 
     static std::mutex g_lock;
 
+    static bool g_connected = false;
     /* This method is called by the idle GSource in the mainloop, to feed CHUNK_SIZE bytes into appsrc.
      * The idle handler is added to the mainloop when appsrc requests us to start sending data (need-data signal)
      * and is removed when appsrc has enough data (enough-data signal).
@@ -51,14 +52,13 @@ namespace PLAY {
         gfloat freq;
 
         if (data->audio_datas.empty()) {
-            g_main_loop_quit(data->main_loop);
-            return FALSE;
+            return TRUE;
         }
         std::lock_guard<std::mutex> auto_lock(g_lock);
         std::shared_ptr<AudioBlock> audio_frame = data->audio_datas.front();
 
         if (!audio_frame) {
-            return FALSE;
+            return TRUE;
         }
         /* Create a new empty buffer */
         int buf_size = audio_frame->size;
@@ -157,6 +157,25 @@ namespace PLAY {
         g_main_loop_quit(data->main_loop);
     }
 
+    static void
+      on_pad_added(GstElement* element,
+        GstPad* pad,
+        gpointer    data)
+    {
+      GstPad* sinkpad;
+      GstElement* decoder = (GstElement*)data;
+
+      /* We can now link this pad with the vorbis-decoder sink pad */
+      g_print("Dynamic pad created, linking demuxer/decoder\n");
+
+      sinkpad = gst_element_get_static_pad(decoder, "sink");
+
+      gst_pad_link(pad, sinkpad);
+
+      gst_object_unref(sinkpad);
+
+      g_connected = TRUE;
+    }
 
     class AudioPlayer::Impl {
     public:
@@ -233,6 +252,7 @@ namespace PLAY {
             gboolean link_demuxer = gst_element_link(m_data.app_source, demuxer);
             gboolean link_decoder = gst_element_link(decoder, m_data.audio_sink);
 
+            g_signal_connect(demuxer, "pad-added", G_CALLBACK(on_pad_added), decoder);
 
             /* Instruct the bus to emit signals for each received message, and connect to the interesting signals */
             bus = gst_element_get_bus(m_data.pipeline);

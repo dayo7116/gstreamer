@@ -34,16 +34,14 @@ static GstFlowReturn on_new_sample_from_sink(GstElement* sink, gpointer data) {
     GstMapInfo map;
     if (gst_buffer_map(buffer, &map, GST_MAP_READ)) {
 
-      if (g_file) {
-        fwrite(map.data, sizeof(guint8), map.size, g_file);
+      std::shared_ptr<PLAY::AudioBlock> audio_frame = std::shared_ptr<PLAY::AudioBlock>(new PLAY::AudioBlock());
+      audio_frame->data = new unsigned char[map.size];
+      audio_frame->size = map.size;
+      memcpy(audio_frame->data, map.data, map.size);
+      g_player->AddOneAudioFrame(audio_frame);
 
-        std::shared_ptr<PLAY::AudioBlock> audio_frame = std::shared_ptr<PLAY::AudioBlock>(new PLAY::AudioBlock());
-        audio_frame->data = new unsigned char[size];
-        audio_frame->size = size;
-        memcpy(audio_frame->data, map.data, map.size);
-        g_player->AddOneAudioFrame(audio_frame);
-
-        g_total_count += size;
+      if (g_total_count >= 0) {
+        g_total_count += map.size;
       }
 
       gst_buffer_unmap(buffer, &map);
@@ -52,7 +50,7 @@ static GstFlowReturn on_new_sample_from_sink(GstElement* sink, gpointer data) {
     if (g_total_count > 100 * 1024) {
       fclose(g_file);
       g_file = NULL;
-      g_total_count = 0;
+      g_total_count = -1;
 
       g_player->StartPlay();
     }

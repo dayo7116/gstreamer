@@ -77,10 +77,9 @@ int play_ogg(int argc, char* argv[], const char* file_path) {
   GstElement* source = gst_element_factory_make("filesrc", "file-source");
   GstElement* demuxer = gst_element_factory_make("oggdemux", "ogg-demuxer");
   GstElement* decoder = gst_element_factory_make("vorbisdec", "vorbis-decoder");
-  GstElement* converter = gst_element_factory_make("audioconvert", "converter");
   GstElement* sink = gst_element_factory_make("autoaudiosink", "audio-sink");
 
-  if (!pipeline || !source || !demuxer || !decoder || !converter || !sink) {
+  if (!pipeline || !source || !demuxer || !decoder || !sink) {
     g_printerr("Not all elements could be created.\n");
     return -1;
   }
@@ -89,12 +88,12 @@ int play_ogg(int argc, char* argv[], const char* file_path) {
   g_object_set(G_OBJECT(source), "location", file_path, NULL);
 
   // 将元素添加到pipeline
-  gst_bin_add_many(GST_BIN(pipeline), source, demuxer, decoder, converter, sink, NULL);
+  gst_bin_add_many(GST_BIN(pipeline), source, demuxer, decoder, sink, NULL);
 
   // 链接元素
   gboolean ret1 = gst_element_link(source, demuxer);
   //gboolean ret2 = gst_element_link(demuxer, decoder);
-  gboolean ret3 = gst_element_link_many(decoder, converter, sink, NULL);
+  gboolean ret3 = gst_element_link_many(decoder, sink, NULL);
 
   g_signal_connect(demuxer, "pad-added", G_CALLBACK(on_pad_added), decoder);
 
