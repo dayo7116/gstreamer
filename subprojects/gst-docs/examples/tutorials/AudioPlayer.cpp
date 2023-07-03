@@ -195,41 +195,43 @@ namespace PLAY {
 
             /* Create the elements */
             m_data.app_source = gst_element_factory_make("appsrc", "audio_source");
-            m_data.audio_convert =
-                gst_element_factory_make("audioconvert", "audio_convert1");
-            m_data.audio_resample =
-                gst_element_factory_make("audioresample", "audio_resample");
+
+            GstElement* demuxer = gst_element_factory_make("oggdemux", "ogg-demuxer");
+            GstElement* decoder = gst_element_factory_make("vorbisdec", "vorbis-decoder");
+
             m_data.audio_sink = gst_element_factory_make("autoaudiosink", "audio_sink");
 
             /* Create the empty pipeline */
             m_data.pipeline = gst_pipeline_new("test-pipeline");
 
-            if (!m_data.pipeline || !m_data.app_source || !m_data.audio_convert || !m_data.audio_resample || !m_data.audio_sink) {
+            if (!m_data.pipeline || !m_data.app_source || !demuxer || !decoder || !m_data.audio_sink) {
                 g_printerr("Not all elements could be created.\n");
                 return;
             }
 
             /* Configure appsrc */
-            gst_audio_info_set_format(&info, GST_AUDIO_FORMAT_S16, SAMPLE_RATE, 2, NULL);
+            /*gst_audio_info_set_format(&info, GST_AUDIO_FORMAT_S16, SAMPLE_RATE, 2, NULL);
             audio_caps = gst_audio_info_to_caps(&info);
             g_object_set(m_data.app_source, "caps", audio_caps, "format", GST_FORMAT_TIME,
-                NULL);
+                NULL);*/
             g_signal_connect(m_data.app_source, "need-data", G_CALLBACK(start_feed),
                 &m_data);
             g_signal_connect(m_data.app_source, "enough-data", G_CALLBACK(stop_feed),
                 &m_data);
 
-            gst_caps_unref(audio_caps);
+            //gst_caps_unref(audio_caps);
 
             /* Link all elements that can be automatically linked because they have "Always" pads */
-            gst_bin_add_many(GST_BIN(m_data.pipeline), m_data.app_source, m_data.audio_convert, m_data.audio_resample,
+            gst_bin_add_many(GST_BIN(m_data.pipeline), m_data.app_source, demuxer, decoder,
                 m_data.audio_sink, NULL);
-            if (gst_element_link_many(m_data.app_source, m_data.audio_convert,
-                m_data.audio_resample, m_data.audio_sink, NULL) != TRUE) {
+            /*if (gst_element_link_many(m_data.app_source, demuxer, decoder, m_data.audio_sink, NULL) != TRUE) {
                 g_printerr("Elements could not be linked.\n");
                 gst_object_unref(m_data.pipeline);
                 return;
-            }
+            }*/
+
+            gboolean link_demuxer = gst_element_link(m_data.app_source, demuxer);
+            gboolean link_decoder = gst_element_link(decoder, m_data.audio_sink);
 
 
             /* Instruct the bus to emit signals for each received message, and connect to the interesting signals */

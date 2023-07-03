@@ -5,10 +5,12 @@
     <ClCompile Include="..\..\AudioSrc.cpp" />
     <ClCompile Include="..\..\AudioCapture.cpp" />
     <ClCompile Include="..\..\AudioPlayer.cpp" />
+    <ClCompile Include="..\..\play_ogg.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\AudioSrc.h" />
     <ClInclude Include="..\..\AudioCapture.h" />
     <ClInclude Include="..\..\AudioPlayer.h" />
+    <ClInclude Include="..\..\play_ogg.h" />
   </ItemGroup>
 </Project>
