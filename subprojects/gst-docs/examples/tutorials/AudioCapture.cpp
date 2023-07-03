@@ -11,13 +11,15 @@
 
 #include <string>
 
-#define CAPS "video/x-raw,format=RGB,width=160,pixel-aspect-ratio=1/1"
+#include "AudioPlayer.h"
 
 #pragma comment(lib, "gstapp-1.0.lib")
 
 static void eos_cb(GstElement* sink, gpointer data) {
   g_print("eos_cb \n");
 }
+
+PLAY::AudioPlayer* g_player;
 
 FILE* g_file = NULL;
 int g_total_count = 0;
@@ -34,7 +36,14 @@ static GstFlowReturn on_new_sample_from_sink(GstElement* sink, gpointer data) {
 
       if (g_file) {
         fwrite(map.data, sizeof(guint8), map.size, g_file);
-        g_total_count += map.size;
+
+        std::shared_ptr<PLAY::AudioBlock> audio_frame = std::shared_ptr<PLAY::AudioBlock>(new PLAY::AudioBlock());
+        audio_frame->data = new unsigned char[size];
+        audio_frame->size = size;
+        memcpy(audio_frame->data, map.data, map.size);
+        g_player->AddOneAudioFrame(audio_frame);
+
+        g_total_count += size;
       }
 
       gst_buffer_unmap(buffer, &map);
@@ -44,6 +53,8 @@ static GstFlowReturn on_new_sample_from_sink(GstElement* sink, gpointer data) {
       fclose(g_file);
       g_file = NULL;
       g_total_count = 0;
+
+      g_player->StartPlay();
     }
     gst_sample_unref(sample);
   }
@@ -176,6 +187,9 @@ int test_audio_capture(int argc, char* argv[])
       argv[0]);
     //exit(-1);
   }
+
+  g_player = new PLAY::AudioPlayer();
+
   GstElement* pipeline, * source, * convert, * resample, * encoder, * muxer, * sink, * audio_queue;
 
   pipeline = gst_pipeline_new("audio-pipeline");

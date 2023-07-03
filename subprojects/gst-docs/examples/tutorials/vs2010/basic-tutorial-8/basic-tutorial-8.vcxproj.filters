@@ -4,9 +4,11 @@
     <ClCompile Include="..\..\basic-tutorial-8.c" />
     <ClCompile Include="..\..\AudioSrc.cpp" />
     <ClCompile Include="..\..\AudioCapture.cpp" />
+    <ClCompile Include="..\..\AudioPlayer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\AudioSrc.h" />
     <ClInclude Include="..\..\AudioCapture.h" />
+    <ClInclude Include="..\..\AudioPlayer.h" />
   </ItemGroup>
 </Project>
