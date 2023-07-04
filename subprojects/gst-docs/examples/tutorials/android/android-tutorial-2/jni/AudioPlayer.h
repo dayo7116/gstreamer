@@ -12,8 +12,6 @@ extern "C" {
 
   void start_play();
 
-  void add_audio_frame(AudioBlock* block);
-
 
 #ifdef __cplusplus
 }

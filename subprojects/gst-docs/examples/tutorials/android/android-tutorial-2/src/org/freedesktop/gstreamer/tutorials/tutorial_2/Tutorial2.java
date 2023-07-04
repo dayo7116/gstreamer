@@ -1,6 +1,8 @@
 package org.freedesktop.gstreamer.tutorials.tutorial_2;
 
 import android.app.Activity;
+import android.content.Context;
+import android.content.res.AssetManager;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
@@ -10,6 +12,9 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import org.freedesktop.gstreamer.GStreamer;
+import org.freedesktop.gstreamer.tutorials.tutorial_2.R;
+
+import java.io.File;
 
 public class Tutorial2 extends Activity {
     private native void nativeInit();     // Initialize native code, build pipeline, etc
@@ -21,11 +26,21 @@ public class Tutorial2 extends Activity {
 
     private boolean is_playing_desired;   // Whether the user asked to go to PLAYING
 
+  private final int PERMISSION_REQUEST_CODE = 1;
+
+  public native void setNativeAssetManager(AssetManager assetManager);
+
     // Called when the activity is first created.
     @Override
     public void onCreate(Bundle savedInstanceState)
     {
+      Context context = getBaseContext();
+      // 获取应用程序的私有目录
+      File filesDir = context.getExternalFilesDir(null);
+
         super.onCreate(savedInstanceState);
+
+      setNativeAssetManager(this.getAssets());
 
         // Initialize GStreamer and warn if it fails
         try {
@@ -109,6 +124,9 @@ public class Tutorial2 extends Activity {
             }
         });
     }
+
+  public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+  }
 
     static {
         System.loadLibrary("gstreamer_android");

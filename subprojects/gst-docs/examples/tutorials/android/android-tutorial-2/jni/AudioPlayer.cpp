@@ -7,9 +7,7 @@
 #include <mutex>
 #include <thread>
 
-#define ON_WINDOWS 1
-
-#define PLAY_FILE 0
+#define ON_WINDOWS 0
 
 #if ON_WINDOWS
 #pragma comment(lib, "gstbase-1.0.lib")
@@ -297,11 +295,8 @@ namespace PLAY {
       gst_init(NULL, NULL);
 
       /* Create the elements */
-#if PLAY_FILE
+//            m_data.app_source = gst_element_factory_make("appsrc", "audio_source");
       m_data.app_source = gst_element_factory_make("filesrc", "audio_source");
-#else
-      m_data.app_source = gst_element_factory_make("appsrc", "audio_source");
-#endif
       GstElement* demuxer = gst_element_factory_make("oggdemux", "ogg-demuxer");
       GstElement* decoder = gst_element_factory_make("vorbisdec", "vorbis-decoder");
 
@@ -314,23 +309,18 @@ namespace PLAY {
         g_printerr("Not all elements could be created.\n");
         return;
       }
-
-#if PLAY_FILE
-
-      // ÉèÖÃÊäÈëÎÄ¼þÂ·¾¶
+      // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½Â·ï¿½ï¿½
 #if ON_WINDOWS
       g_object_set(G_OBJECT(m_data.app_source), "location", "D:/test_audio.ogg", NULL);
 #else
       g_object_set(G_OBJECT(m_data.app_source), "location", "/storage/emulated/0/Android/data/org.freedesktop.gstreamer.tutorials.tutorial_2/files/test_audio.ogg", NULL);
 #endif
 
-#else
 
-       g_signal_connect(m_data.app_source, "need-data", G_CALLBACK(start_feed),
-                                   &m_data);
-       g_signal_connect(m_data.app_source, "enough-data", G_CALLBACK(stop_feed),
-                                   &m_data);
-#endif
+      //            g_signal_connect(m_data.app_source, "need-data", G_CALLBACK(start_feed),
+      //                             &m_data);
+      //            g_signal_connect(m_data.app_source, "enough-data", G_CALLBACK(stop_feed),
+      //                             &m_data);
 
                   /* Link all elements that can be automatically linked because they have "Always" pads */
       gst_bin_add_many(GST_BIN(m_data.pipeline), m_data.app_source, demuxer, decoder,
@@ -371,16 +361,4 @@ namespace PLAY {
 PLAY::AudioPlayer g_player;
 void start_play() {
   g_player.StartPlay();
-}
-
-void add_audio_frame(AudioBlock* block) {
-#if PLAY_FILE
-  return;
-#endif
-  std::shared_ptr<AudioBlock> audio_frame = std::shared_ptr<AudioBlock>(new AudioBlock());
-  audio_frame->data = new unsigned char[block->size];
-  audio_frame->size = block->size;
-  memcpy(audio_frame->data, block->data, block->size);
-
-  g_player.AddOneAudioFrame(audio_frame);
 }

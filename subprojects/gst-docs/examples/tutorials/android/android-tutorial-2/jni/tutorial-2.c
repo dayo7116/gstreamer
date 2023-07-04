@@ -5,6 +5,8 @@
 #include <gst/audio/audio.h>
 #include <pthread.h>
 
+#include "AudioPlayer.h"
+
 GST_DEBUG_CATEGORY_STATIC (debug_category);
 #define GST_CAT_DEFAULT debug_category
 
@@ -32,6 +34,8 @@ typedef struct _CustomData
   GMainLoop *main_loop;         /* GLib main loop */
   gboolean initialized;         /* To avoid informing the UI multiple times about the initialization */
   GstElement *app_source;
+  GstElement *demuxer;
+  GstElement *decoder;
   GstElement *audio_convert;
   GstElement *audio_resample;
   GstElement *audio_sink;
@@ -348,6 +352,8 @@ app_function (void *userdata)
 static void
 gst_native_init (JNIEnv * env, jobject thiz)
 {
+    g_setenv("GST_DEBUG", "*:7", TRUE);
+
   CustomData *data = g_new0 (CustomData, 1);
   SET_CUSTOM_DATA (env, thiz, custom_data_field_id, data);
   GST_DEBUG_CATEGORY_INIT (debug_category, "tutorial-2", 0,
@@ -356,8 +362,10 @@ gst_native_init (JNIEnv * env, jobject thiz)
   GST_DEBUG ("Created CustomData at %p", data);
   data->app = (*env)->NewGlobalRef (env, thiz);
   GST_DEBUG ("Created GlobalRef for app object at %p", data->app);
-  pthread_create (&gst_app_thread, NULL, &app_function, data);
+//  pthread_create (&gst_app_thread, NULL, &app_function, data);
     data->sourceid = 0;
+
+    start_play();
 }
 
 /* Quit the main loop, remove the native thread and free resources */

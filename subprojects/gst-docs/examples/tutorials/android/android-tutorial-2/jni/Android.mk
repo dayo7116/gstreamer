@@ -1,16 +1,27 @@
 LOCAL_PATH := $(call my-dir)
 
+# Add prebuilt Oboe library
+include $(CLEAR_VARS)
+LOCAL_MODULE := Oboe
+LOCAL_SRC_FILES := $(OBOE_SDK_ROOT)/prefab/modules/oboe/libs/android.$(TARGET_ARCH_ABI)/liboboe.so
+include $(PREBUILT_SHARED_LIBRARY)
+
 include $(CLEAR_VARS)
 
 LOCAL_MODULE    := tutorial-2
-LOCAL_SRC_FILES := tutorial-2.c dummy.cpp
-LOCAL_SHARED_LIBRARIES := gstreamer_android
-LOCAL_LDLIBS := -llog
+LOCAL_SRC_FILES := tutorial-2.c dummy.cpp AudioPlayer.cpp
+LOCAL_SHARED_LIBRARIES := gstreamer_android Oboe
+LOCAL_LDLIBS := -llog -landroid
 include $(BUILD_SHARED_LIBRARY)
+
+LOCAL_C_INCLUDES += $(OBOE_SDK_ROOT)/prefab/modules/oboe/include
 
 ifndef GSTREAMER_ROOT_ANDROID
 $(error GSTREAMER_ROOT_ANDROID is not defined!)
 endif
+
+LOCAL_CPPFLAGS := -std=c++11 -D __cplusplus=201103L -DXR_USE_PLATFORM_ANDROID -DXR_USE_GRAPHICS_API_OPENGL_ES -fexceptions
+LOCAL_CXXFLAGS += -stdlib=libstdc++
 
 ifeq ($(TARGET_ARCH_ABI),armeabi)
 GSTREAMER_ROOT        := $(GSTREAMER_ROOT_ANDROID)/arm
@@ -28,7 +39,7 @@ endif
 
 GSTREAMER_NDK_BUILD_PATH  := $(GSTREAMER_ROOT)/share/gst-android/ndk-build/
 include $(GSTREAMER_NDK_BUILD_PATH)/plugins.mk
-GSTREAMER_PLUGINS         := $(GSTREAMER_PLUGINS_CORE) $(GSTREAMER_PLUGINS_SYS)
+GSTREAMER_PLUGINS         := $(GSTREAMER_PLUGINS_CORE) $(GSTREAMER_PLUGINS_SYS) $(GSTREAMER_PLUGINS_CODECS)
 GSTREAMER_EXTRA_LIBS      := -liconv
 GSTREAMER_EXTRA_DEPS      := gstreamer-audio-1.0
 include $(GSTREAMER_NDK_BUILD_PATH)/gstreamer-1.0.mk

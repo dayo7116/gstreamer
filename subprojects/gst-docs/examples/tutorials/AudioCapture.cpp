@@ -41,19 +41,19 @@ static GstFlowReturn on_new_sample_from_sink(GstElement* sink, gpointer data) {
       memcpy(audio_frame->data, map.data, map.size);
 
       if (g_total_count >= 0) {
-        //g_player->AddOneAudioFrame(audio_frame);
+        add_audio_frame(audio_frame.get());
+        delete[] audio_frame->data;
         g_total_count += map.size;
       }
 
       gst_buffer_unmap(buffer, &map);
     }
 
-    if (g_total_count > 1) {
+    if (g_total_count > 1024*100) {
       fclose(g_file);
       g_file = NULL;
       g_total_count = -1;
 
-      //g_player->StartPlay();
       start_play();
     }
     gst_sample_unref(sample);
