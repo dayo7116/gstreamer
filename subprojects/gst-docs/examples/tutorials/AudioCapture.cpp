@@ -8,6 +8,7 @@
 #include <gst/app/gstappsink.h>
 #include <stdlib.h>
 #include <gst/gstbuffer.h>
+#include <memory>
 
 #include <string>
 
@@ -19,7 +20,7 @@ static void eos_cb(GstElement* sink, gpointer data) {
   g_print("eos_cb \n");
 }
 
-PLAY::AudioPlayer* g_player;
+//PLAY::AudioPlayer* g_player;
 
 FILE* g_file = NULL;
 int g_total_count = 0;
@@ -34,25 +35,26 @@ static GstFlowReturn on_new_sample_from_sink(GstElement* sink, gpointer data) {
     GstMapInfo map;
     if (gst_buffer_map(buffer, &map, GST_MAP_READ)) {
 
-      std::shared_ptr<PLAY::AudioBlock> audio_frame = std::shared_ptr<PLAY::AudioBlock>(new PLAY::AudioBlock());
+      std::shared_ptr<AudioBlock> audio_frame = std::shared_ptr<AudioBlock>(new AudioBlock());
       audio_frame->data = new unsigned char[map.size];
       audio_frame->size = map.size;
       memcpy(audio_frame->data, map.data, map.size);
-      g_player->AddOneAudioFrame(audio_frame);
 
       if (g_total_count >= 0) {
+        //g_player->AddOneAudioFrame(audio_frame);
         g_total_count += map.size;
       }
 
       gst_buffer_unmap(buffer, &map);
     }
 
-    if (g_total_count > 100 * 1024) {
+    if (g_total_count > 1) {
       fclose(g_file);
       g_file = NULL;
       g_total_count = -1;
 
-      g_player->StartPlay();
+      //g_player->StartPlay();
+      start_play();
     }
     gst_sample_unref(sample);
   }
@@ -186,7 +188,7 @@ int test_audio_capture(int argc, char* argv[])
     //exit(-1);
   }
 
-  g_player = new PLAY::AudioPlayer();
+  //g_player = new PLAY::AudioPlayer();
 
   GstElement* pipeline, * source, * convert, * resample, * encoder, * muxer, * sink, * audio_queue;
 
@@ -198,8 +200,6 @@ int test_audio_capture(int argc, char* argv[])
   convert = gst_element_factory_make("audioconvert", "audio-convert");
 
   resample = gst_element_factory_make("audioresample", "audio-resample");
-
-  encoder = gst_element_factory_make("wavenc", "audio-encoder");
 
   encoder = gst_element_factory_make("vorbisenc", "audio-encoder");
   muxer = gst_element_factory_make("oggmux", "audio-muxer");

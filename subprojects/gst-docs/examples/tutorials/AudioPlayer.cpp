@@ -5,11 +5,13 @@
 #include <gst/audio/audio.h>
 #include <vector>
 #include <mutex>
+#include <thread>
 
 #pragma comment(lib, "gstbase-1.0.lib")
 #pragma comment(lib, "gstaudio-1.0.lib")
 
 namespace PLAY {
+
 
 #define BITS_PER_BYTE 8
 
@@ -18,22 +20,23 @@ namespace PLAY {
 #define SAMPLE_RATE 48000       /* Samples per second we are sending */
 
     /* Structure to contain all our information, so we can pass it to callbacks */
-    typedef struct _CustomData
-    {
-        GstElement* pipeline, * app_source, * audio_convert,
-            * audio_resample, * audio_sink;
+  struct CustomData
+  {
+    GstElement* pipeline, * app_source, * audio_convert,
+      * audio_resample, * audio_sink;
 
-        guint64 num_samples = 0;          /* Number of samples generated so far (for timestamp generation) */
-        gfloat a = 0.0, b = 0.0, c = 0.0, d = 0.0;            /* For waveform generation */
+    guint64 num_samples = 0;          /* Number of samples generated so far (for timestamp generation) */
+    gfloat a = 0.0, b = 0.0, c = 0.0, d = 0.0;            /* For waveform generation */
 
-        guint sourceid = 0;               /* To control the GSource */
+    guint sourceid = 0;               /* To control the GSource */
 
-        GMainLoop* main_loop;         /* GLib's Main Loop */
-        std::vector< std::shared_ptr<AudioBlock> > audio_datas;
-        int audio_frame_index = 0;
-    } CustomData;
+    GMainLoop* main_loop;         /* GLib's Main Loop */
+    std::vector< std::shared_ptr<AudioBlock> > audio_datas;
+    int audio_frame_index = 0;
+  };
 
     static std::mutex g_lock;
+    int g_count = 0;
 
     static bool g_connected = false;
     /* This method is called by the idle GSource in the mainloop, to feed CHUNK_SIZE bytes into appsrc.
@@ -51,14 +54,23 @@ namespace PLAY {
         gint num_samples = CHUNK_SIZE / 2;    /* Because each sample is 16 bits */
         gfloat freq;
 
-        if (data->audio_datas.empty()) {
+        std::shared_ptr<AudioBlock> audio_frame;
+        {
+          std::lock_guard<std::mutex> auto_lock(g_lock);
+          if (data->audio_datas.empty()) {
             return TRUE;
+          }
+          audio_frame = data->audio_datas.front();
+          data->audio_datas.erase(data->audio_datas.begin());
         }
-        std::lock_guard<std::mutex> auto_lock(g_lock);
-        std::shared_ptr<AudioBlock> audio_frame = data->audio_datas.front();
+        g_count++;
+
+        /*if (g_count % 3 == 0 || g_count % 4 == 0) {
+          return TRUE;
+        }*/
 
         if (!audio_frame) {
-            return TRUE;
+          return TRUE;
         }
         /* Create a new empty buffer */
         int buf_size = audio_frame->size;
@@ -86,7 +98,6 @@ namespace PLAY {
         /* Free the buffer now that we are done with it */
         gst_buffer_unref(buffer);
 
-        data->audio_datas.erase(data->audio_datas.begin());
         /*data->audio_frame_index++;
         data->audio_frame_index = data->audio_frame_index % data->audio_datas.size();*/
 
@@ -170,17 +181,20 @@ namespace PLAY {
 
       sinkpad = gst_element_get_static_pad(decoder, "sink");
 
-      gst_pad_link(pad, sinkpad);
+      GstPadLinkReturn ret = gst_pad_link(pad, sinkpad);
+      if (GST_PAD_LINK_OK  != ret) {
+        g_print("Link Error\n");
+      }
 
       gst_object_unref(sinkpad);
 
       g_connected = TRUE;
     }
 
-    class AudioPlayer::Impl {
+    class AudioPlayer {
     public:
-        Impl() {}
-        ~Impl() {
+      AudioPlayer() {}
+        ~AudioPlayer() {
             if (m_loop_thread) {
                 m_loop_thread->join();
                 delete m_loop_thread;
@@ -189,15 +203,36 @@ namespace PLAY {
         }
 
         void StartPlay() {
-            m_loop_thread = new std::thread([this] {
-                this->StartAndLoop();
-            });
+          FILE* file = fopen("D:/test_audio.ogg", "rb");
+          if (file) {
+            fseek(file, 0, SEEK_END);
+            int lSize = ftell(file);
+            std::vector<char> datas;
+            datas.resize(lSize);
+
+            fseek(file, 0, SEEK_SET);
+            int result = fread(datas.data(), 1, lSize, file);
+            fclose(file);
+
+            const int block_sz = 100;
+            for (int i = 0; i < datas.size(); i += block_sz) {
+              std::shared_ptr<AudioBlock> audio_frame = std::shared_ptr<AudioBlock>(new AudioBlock());
+              audio_frame->data = new unsigned char[block_sz];
+              audio_frame->size = block_sz;
+              memcpy(audio_frame->data, datas.data() + i, block_sz);
+              AddOneAudioFrame(audio_frame);
+            }
+          }
+
+          m_loop_thread = new std::thread([this] {
+            this->StartAndLoop();
+          });
         }
 
         void AddOneAudioFrame(const std::shared_ptr<AudioBlock>& audio_frame) {
             std::lock_guard<std::mutex> auto_lock(g_lock);
             m_data.audio_datas.push_back(audio_frame);
-            printf("Add One Audio Frame, total:%d \n", m_data.audio_datas.size());
+            //printf("Add One Audio Frame, total:%d \n", m_data.audio_datas.size());
         }
 
         void StartAndLoop() {
@@ -208,7 +243,7 @@ namespace PLAY {
             /* Initialize cumstom m_data structure */
             m_data.b = 1;                   /* For waveform generation */
             m_data.d = 1;
-
+            g_setenv("GST_DEBUG", "*:5", TRUE);
             /* Initialize GStreamer */
             gst_init(NULL, NULL);
 
@@ -279,18 +314,9 @@ namespace PLAY {
         std::thread* m_loop_thread = NULL;
         CustomData m_data;
     };
+}
 
-    AudioPlayer::AudioPlayer() {
-        m_impl = std::shared_ptr<AudioPlayer::Impl>(new AudioPlayer::Impl());
-    }
-    AudioPlayer::~AudioPlayer() {
-
-    }
-
-    void AudioPlayer::StartPlay() {
-        m_impl->StartPlay();
-    }
-    void AudioPlayer::AddOneAudioFrame(const std::shared_ptr<AudioBlock>& audio_frame) {
-        m_impl->AddOneAudioFrame(audio_frame);
-    }
+PLAY::AudioPlayer g_player;
+void start_play() {
+  g_player.StartPlay();
 }
