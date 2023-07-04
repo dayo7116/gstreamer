@@ -201,7 +201,7 @@ int test_audio_capture(int argc, char* argv[])
 
   resample = gst_element_factory_make("audioresample", "audio-resample");
 
-  encoder = gst_element_factory_make("vorbisenc", "audio-encoder");
+  encoder = gst_element_factory_make("lamemp3enc", "audio-encoder");
   muxer = gst_element_factory_make("oggmux", "audio-muxer");
 
   //sink = gst_element_factory_make("filesink", "file-sink");
@@ -212,9 +212,9 @@ int test_audio_capture(int argc, char* argv[])
   g_signal_connect(sink, "new-sample", G_CALLBACK(on_new_sample_from_sink), NULL);
   g_signal_connect(sink, "eos", G_CALLBACK(eos_cb), NULL);
 
-  gst_bin_add_many(GST_BIN(pipeline), source, encoder, muxer, sink, NULL);
+  gst_bin_add_many(GST_BIN(pipeline), source, convert, encoder, /*muxer,*/ sink, NULL);
 
-  gst_element_link_many(source, encoder, muxer, sink, NULL);
+  gst_element_link_many(source, convert, encoder, /*muxer,*/ sink, NULL);
 
   ret = gst_element_set_state(pipeline, GST_STATE_PLAYING);
 
