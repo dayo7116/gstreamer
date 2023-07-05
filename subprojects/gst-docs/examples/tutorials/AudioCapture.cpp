@@ -214,9 +214,9 @@ int test_audio_capture(int argc, char* argv[])
   g_signal_connect(sink, "new-sample", G_CALLBACK(on_new_sample_from_sink), NULL);
   g_signal_connect(sink, "eos", G_CALLBACK(eos_cb), NULL);
 
-  gst_bin_add_many(GST_BIN(pipeline), source, convert, encoder, muxer, sink, NULL);
+  gst_bin_add_many(GST_BIN(pipeline), source, convert, encoder, /*muxer,*/ sink, NULL);
 
-  gst_element_link_many(source, convert, encoder, muxer, sink, NULL);
+  gst_element_link_many(source, convert, encoder, /*muxer,*/ sink, NULL);
 
   ret = gst_element_set_state(pipeline, GST_STATE_PLAYING);
 
