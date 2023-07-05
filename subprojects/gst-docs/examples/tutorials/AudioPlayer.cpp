@@ -302,8 +302,12 @@ namespace PLAY {
 #else
       m_data.app_source = gst_element_factory_make("appsrc", "audio_source");
 #endif
-      GstElement* demuxer = gst_element_factory_make("mpegaudioparse", "ogg-demuxer");
-      GstElement* decoder = gst_element_factory_make("mpg123audiodec", "vorbis-decoder");
+     /* GstElement* demuxer = gst_element_factory_make("mpegaudioparse", "ogg-demuxer");
+      GstElement* decoder = gst_element_factory_make("mpg123audiodec", "vorbis-decoder");*/
+
+      GstElement* demuxer = gst_element_factory_make("oggdemux", "ogg-demuxer");
+      GstElement* decoder = gst_element_factory_make("opusdec", "vorbis-decoder");
+
       GstElement* convert = gst_element_factory_make("audioconvert", "audio-convert");
       m_data.audio_sink = gst_element_factory_make("autoaudiosink", "audio_sink");
 
@@ -317,7 +321,7 @@ namespace PLAY {
 
 #if PLAY_FILE
 
-      // ÉèÖÃÊäÈëÎÄ¼þÂ·¾¶
+      // è®¾ç½®è¾“å…¥æ–‡ä»¶è·¯å¾„
 #if ON_WINDOWS
       g_object_set(G_OBJECT(m_data.app_source), "location", "D:/test_audio.ogg", NULL);
 #else
@@ -336,11 +340,12 @@ namespace PLAY {
       gst_bin_add_many(GST_BIN(m_data.pipeline), m_data.app_source, demuxer, decoder, convert,
         m_data.audio_sink, NULL);
 
-      gboolean link_many = gst_element_link_many(m_data.app_source, demuxer, decoder, convert, m_data.audio_sink, NULL);
-      /*gboolean link_demuxer = gst_element_link(m_data.app_source, demuxer);
-      gboolean link_decoder = gst_element_link(decoder, m_data.audio_sink);
+      //gboolean link_many = gst_element_link_many(m_data.app_source, demuxer, decoder, convert, m_data.audio_sink, NULL);
 
-      g_signal_connect(demuxer, "pad-added", G_CALLBACK(on_pad_added), decoder);*/
+      gboolean link_demuxer = gst_element_link(m_data.app_source, demuxer);
+      gboolean link_decoder = gst_element_link_many(decoder, convert, m_data.audio_sink, NULL);
+
+      g_signal_connect(demuxer, "pad-added", G_CALLBACK(on_pad_added), decoder);
 
       /* Instruct the bus to emit signals for each received message, and connect to the interesting signals */
       bus = gst_element_get_bus(m_data.pipeline);
