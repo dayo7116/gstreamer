@@ -7,10 +7,6 @@
 #include <mutex>
 #include <thread>
 
-#define ON_WINDOWS 1
-
-#define PLAY_FILE 0
-
 #if ON_WINDOWS
 #pragma comment(lib, "gstbase-1.0.lib")
 #pragma comment(lib, "gstaudio-1.0.lib")
@@ -111,10 +107,10 @@ namespace PLAY {
     buffer = gst_buffer_new_and_alloc(buf_size);
 
     /* Set its timestamp and duration */
-    GST_BUFFER_TIMESTAMP(buffer) =
-      gst_util_uint64_scale(16, GST_SECOND, SAMPLE_RATE);
-    GST_BUFFER_DURATION(buffer) =
-      gst_util_uint64_scale(16, GST_SECOND, SAMPLE_RATE);
+    //GST_BUFFER_TIMESTAMP(buffer) =
+    //  gst_util_uint64_scale(16, GST_SECOND, SAMPLE_RATE);
+    //GST_BUFFER_DURATION(buffer) =
+    //  gst_util_uint64_scale(16, GST_SECOND, SAMPLE_RATE);
 
     /* Generate some psychodelic waveforms */
     gst_buffer_map(buffer, &map, GST_MAP_WRITE);
@@ -236,40 +232,75 @@ namespace PLAY {
     }
 
     void StartPlay() {
-      const int block_sz = 100;
 
-      //            FILE* file = fopen("/storage/emulated/0/Android/data/org.freedesktop.gstreamer.tutorials.tutorial_2/files/test_audio.ogg", "rb");
-      //            if (file) {
-      //                fseek(file, 0, SEEK_END);
-      //                int lSize = ftell(file);
-      //                std::vector<char> datas;
-      //                datas.resize(lSize);
-      //
-      //                fseek(file, 0, SEEK_SET);
-      //                int result = fread(datas.data(), 1, lSize, file);
-      //                fclose(file);
-      //
-      //
-      //                for (int i = 0; i < datas.size(); i += block_sz) {
-      //                    std::shared_ptr<AudioBlock> audio_frame = std::shared_ptr<AudioBlock>(new AudioBlock());
-      //                    audio_frame->data = new unsigned char[block_sz];
-      //                    audio_frame->size = block_sz;
-      //                    memcpy(audio_frame->data, datas.data() + i, block_sz);
-      //                    AddOneAudioFrame(audio_frame);
-      //                }
-      //
-      //                fclose(file);
-      //            } else {
-      //                std::vector<char> datas = readFileFromAssets("test_audio.ogg");
-      //                for(int i = 0; i < datas.size(); i+= block_sz) {
-      //                    std::shared_ptr<AudioBlock> audio_frame = std::shared_ptr<AudioBlock>(new AudioBlock());
-      //                    audio_frame->data = new unsigned char[block_sz];
-      //                    audio_frame->size = block_sz;
-      //                    memcpy(audio_frame->data, datas.data() + i, block_sz);
-      //                    AddOneAudioFrame(audio_frame);
-      //                }
-      //            }
+#if PLAY_FILE
 
+#if ON_WINDOWS
+      FILE* file = fopen("D:/test_audio_cpp.opus", "rb");
+      int block_count = 0;
+      if (file) {
+        while (true) {
+
+          int sz = 0;
+          int read_count = sizeof(int);
+          std::vector<char> datas;
+          int result = fread(&sz, read_count, 1, file);
+          if (sz == 0) {
+            fclose(file);
+            break;
+          }
+          datas.resize(sz);
+          result = fread(datas.data(), 1, sz, file);
+
+          std::shared_ptr<AudioBlock> audio_frame = std::shared_ptr<AudioBlock>(new AudioBlock());
+          audio_frame->data = new unsigned char[sz];
+          audio_frame->size = sz;
+          memcpy(audio_frame->data, datas.data(), sz);
+
+          block_count++;
+          if (block_count > 2)
+          {
+            add_audio_frame(audio_frame.get());
+          }
+          
+        }
+      }
+#else
+      FILE* file = fopen("/storage/emulated/0/Android/data/org.freedesktop.gstreamer.tutorials.tutorial_2/files/test_audio.opus", "rb");
+      if (file) {
+        while (true) {
+
+          int sz = 0;
+          int read_count = sizeof(int);
+          std::vector<char> datas;
+          int result = fread(&sz, read_count, 1, file);
+          if (sz == 0) {
+            fclose(file);
+            break;
+          }
+          datas.resize(sz);
+          result = fread(datas.data(), 1, sz, file);
+
+          std::shared_ptr<AudioBlock> audio_frame = std::shared_ptr<AudioBlock>(new AudioBlock());
+          audio_frame->data = new unsigned char[sz];
+          audio_frame->size = sz;
+          memcpy(audio_frame->data, datas.data(), sz);
+          add_audio_frame(audio_frame.get());
+        }
+      }
+      else {
+        std::vector<char> datas = readFileFromAssets("test_audio.opus");
+        for (int i = 0; i < datas.size(); i += block_sz) {
+          std::shared_ptr<AudioBlock> audio_frame = std::shared_ptr<AudioBlock>(new AudioBlock());
+          audio_frame->data = new unsigned char[block_sz];
+          audio_frame->size = block_sz;
+          memcpy(audio_frame->data, datas.data() + i, block_sz);
+          add_audio_frame(audio_frame.get());
+        }
+      }
+#endif
+                  
+#endif
 
 
 
@@ -297,11 +328,7 @@ namespace PLAY {
       gst_init(NULL, NULL);
 
       /* Create the elements */
-#if PLAY_FILE
-      m_data.app_source = gst_element_factory_make("filesrc", "audio_source");
-#else
       m_data.app_source = gst_element_factory_make("appsrc", "audio_source");
-#endif
      /* GstElement* demuxer = gst_element_factory_make("mpegaudioparse", "ogg-demuxer");
       GstElement* decoder = gst_element_factory_make("mpg123audiodec", "vorbis-decoder");*/
 
@@ -319,22 +346,10 @@ namespace PLAY {
         return;
       }
 
-#if PLAY_FILE
-
-      // 设置输入文件路径
-#if ON_WINDOWS
-      g_object_set(G_OBJECT(m_data.app_source), "location", "D:/test_audio.ogg", NULL);
-#else
-      g_object_set(G_OBJECT(m_data.app_source), "location", "/storage/emulated/0/Android/data/org.freedesktop.gstreamer.tutorials.tutorial_2/files/test_audio.ogg", NULL);
-#endif
-
-#else
-
        g_signal_connect(m_data.app_source, "need-data", G_CALLBACK(start_feed),
                                    &m_data);
        g_signal_connect(m_data.app_source, "enough-data", G_CALLBACK(stop_feed),
                                    &m_data);
-#endif
 
                   /* Link all elements that can be automatically linked because they have "Always" pads */
       gst_bin_add_many(GST_BIN(m_data.pipeline), m_data.app_source, demuxer, decoder, convert,
@@ -380,9 +395,6 @@ void start_play() {
 }
 
 void add_audio_frame(AudioBlock* block) {
-#if PLAY_FILE
-  return;
-#endif
   std::shared_ptr<AudioBlock> audio_frame = std::shared_ptr<AudioBlock>(new AudioBlock());
   audio_frame->data = new unsigned char[block->size];
   audio_frame->size = block->size;

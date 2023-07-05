@@ -40,8 +40,21 @@ static GstFlowReturn on_new_sample_from_sink(GstElement* sink, gpointer data) {
       audio_frame->size = map.size;
       memcpy(audio_frame->data, map.data, map.size);
 
+      if (g_file) {
+        int sz = map.size;
+        fwrite(&sz, sizeof(int), 1, g_file);
+        fwrite(map.data, sizeof(guint8), map.size, g_file);
+      }
+
       if (g_total_count >= 0) {
+#if CAPTURE_2_FILE
+#else
+#if PLAY_FILE
+#else
         add_audio_frame(audio_frame.get());
+#endif
+#endif
+        
         delete[] audio_frame->data;
         g_total_count += map.size;
       }
@@ -49,9 +62,17 @@ static GstFlowReturn on_new_sample_from_sink(GstElement* sink, gpointer data) {
       gst_buffer_unmap(buffer, &map);
     }
 
-    if (g_total_count > 1024*100) {
-      fclose(g_file);
-      g_file = NULL;
+    int capture_count = 100 * 1024;
+#if PLAY_FILE
+    capture_count = 1;
+#endif
+    if (g_total_count > capture_count) {
+      if (g_file) {
+        int sz = 0;
+        fwrite(&sz, sizeof(int), 1, g_file);
+        fclose(g_file);
+        g_file = NULL;
+      }
       g_total_count = -1;
 
       start_play();
@@ -208,7 +229,9 @@ int test_audio_capture(int argc, char* argv[])
 
   //sink = gst_element_factory_make("filesink", "file-sink");
   //g_object_set(G_OBJECT(sink), "location", "D:\\test_audio.ogg", NULL);
-  g_file = fopen("D:\\test_audio.ogg", "ab");
+#if CAPTURE_2_FILE
+  g_file = fopen("D:\\test_audio_cpp.opus", "wb");
+#endif
   sink = gst_element_factory_make("appsink", "appsink_audio");
   g_object_set(G_OBJECT(sink), "emit-signals", TRUE, "sync", FALSE, NULL);
   g_signal_connect(sink, "new-sample", G_CALLBACK(on_new_sample_from_sink), NULL);
