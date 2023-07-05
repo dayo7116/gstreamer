@@ -1,6 +1,11 @@
 #pragma once
 #include <stdio.h>
 
+#define CAPTURE_2_FILE 0
+#define PLAY_FILE 1
+
+#define ON_WINDOWS 0
+
 #ifdef __cplusplus
 extern "C" {
 #endif

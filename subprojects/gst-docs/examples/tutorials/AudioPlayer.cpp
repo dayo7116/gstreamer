@@ -236,70 +236,41 @@ namespace PLAY {
 #if PLAY_FILE
 
 #if ON_WINDOWS
-      FILE* file = fopen("D:/test_audio_cpp.opus", "rb");
-      int block_count = 0;
-      if (file) {
-        while (true) {
-
-          int sz = 0;
-          int read_count = sizeof(int);
-          std::vector<char> datas;
-          int result = fread(&sz, read_count, 1, file);
-          if (sz == 0) {
-            fclose(file);
-            break;
-          }
-          datas.resize(sz);
-          result = fread(datas.data(), 1, sz, file);
-
-          std::shared_ptr<AudioBlock> audio_frame = std::shared_ptr<AudioBlock>(new AudioBlock());
-          audio_frame->data = new unsigned char[sz];
-          audio_frame->size = sz;
-          memcpy(audio_frame->data, datas.data(), sz);
-
-          block_count++;
-          if (block_count > 2)
-          {
-            add_audio_frame(audio_frame.get());
-          }
-          
-        }
-      }
+        const char* file_path = "D:/test_audio_cpp.opus";
 #else
-      FILE* file = fopen("/storage/emulated/0/Android/data/org.freedesktop.gstreamer.tutorials.tutorial_2/files/test_audio.opus", "rb");
-      if (file) {
-        while (true) {
-
-          int sz = 0;
-          int read_count = sizeof(int);
-          std::vector<char> datas;
-          int result = fread(&sz, read_count, 1, file);
-          if (sz == 0) {
-            fclose(file);
-            break;
-          }
-          datas.resize(sz);
-          result = fread(datas.data(), 1, sz, file);
-
-          std::shared_ptr<AudioBlock> audio_frame = std::shared_ptr<AudioBlock>(new AudioBlock());
-          audio_frame->data = new unsigned char[sz];
-          audio_frame->size = sz;
-          memcpy(audio_frame->data, datas.data(), sz);
-          add_audio_frame(audio_frame.get());
-        }
-      }
-      else {
-        std::vector<char> datas = readFileFromAssets("test_audio.opus");
-        for (int i = 0; i < datas.size(); i += block_sz) {
-          std::shared_ptr<AudioBlock> audio_frame = std::shared_ptr<AudioBlock>(new AudioBlock());
-          audio_frame->data = new unsigned char[block_sz];
-          audio_frame->size = block_sz;
-          memcpy(audio_frame->data, datas.data() + i, block_sz);
-          add_audio_frame(audio_frame.get());
-        }
-      }
+        const char* file_path = "/storage/emulated/0/Android/data/org.freedesktop.gstreamer.tutorials.tutorial_2/files/test_audio.opus";
 #endif
-                  
+
+        FILE* file = fopen(file_path, "rb");
+        int block_count = 0;
+        if (file) {
+            while (true) {
+
+                int sz = 0;
+                int read_count = sizeof(int);
+                std::vector<char> datas;
+                int result = fread(&sz, read_count, 1, file);
+                if (sz == 0) {
+                    fclose(file);
+                    break;
+                }
+                datas.resize(sz);
+                result = fread(datas.data(), 1, sz, file);
+
+                std::shared_ptr<AudioBlock> audio_frame = std::shared_ptr<AudioBlock>(new AudioBlock());
+                audio_frame->data = new unsigned char[sz];
+                audio_frame->size = sz;
+                memcpy(audio_frame->data, datas.data(), sz);
+
+                block_count++;
+                if (block_count > 2)
+                {
+                    add_audio_frame(audio_frame.get());
+                }
+
+            }
+        }
+
 #endif
 
 
