@@ -383,9 +383,11 @@ namespace XRClient {
                 m_server_ip = server_ip;
             }
             m_loop_thread = std::make_shared<std::thread>([this]() {
-                pthread_setname_np(m_loop_thread->native_handle(), "ClientXRLoop");
+                pthread_setname_np(m_thread_handle, "ClientXRLoop");
+                m_thread_handle = 0;
                 RunLoop();
             });
+            m_thread_handle = m_loop_thread->native_handle();
             m_loop_thread->detach();
         }
 
@@ -530,6 +532,7 @@ namespace XRClient {
 
     protected:
         std::shared_ptr<std::thread> m_loop_thread;
+        pthread_t m_thread_handle = 0;
 
         GMainLoop *m_main_loop = NULL;
         SoupSession * m_soup_session = NULL;

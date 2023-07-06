@@ -57,9 +57,9 @@ void soup_websocket_closed_cb(SoupWebsocketConnection* connection,
     g_send_thread = nullptr;
   }
 
-  printf("XR-Server connection:%p closed \n", connection);
+  printf("XR-Server connection:%p closed \n\n\n\n", connection);
   if (g_connection) {
-    //g_object_unref(G_OBJECT(g_connection));
+    g_object_unref(G_OBJECT(g_connection));
     g_connection = NULL;
   }
 
