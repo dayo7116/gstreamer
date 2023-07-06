@@ -374,161 +374,24 @@ namespace XRClient {
             Quit();
         }
 
-        void Start(const char* server_ip) {
-            if (nullptr != m_loop_thread) {
-                return;
-            }
+    public:
+        void Start(const char* server_ip);
+        void Quit();
 
-            if (server_ip) {
-                m_server_ip = server_ip;
-            }
-            m_loop_thread = std::make_shared<std::thread>([this]() {
-                pthread_setname_np(m_thread_handle, "ClientXRLoop");
-                m_thread_handle = 0;
-                RunLoop();
-            });
-            m_thread_handle = m_loop_thread->native_handle();
-            m_loop_thread->detach();
-        }
+    protected:
+        void RunLoop();
 
-        void RunLoop() {
-            GMainContext *context = g_main_context_new ();
+        static gboolean AsyncConnectFun(gpointer user_data);
+        void ConnectServer();
 
-            g_main_context_invoke(context, (GSourceFunc) AsyncConnectFun, this);
-            g_main_context_push_thread_default (context);
+        static gboolean ServerConnectedCallback(SoupSession * session, GAsyncResult * res, void *user_data);
+        bool OnServerConnected(SoupSession * session, GAsyncResult * res) ;
 
-            GMainLoop *loop = g_main_loop_new(context, FALSE);
-            m_main_loop = loop;
+        static void ServerClosedCallback(SoupWebsocketConnection* conn, void *user_data);
+        void OnServerClosed(SoupWebsocketConnection* connection);
 
-            g_main_loop_run (loop);
-
-            g_main_context_pop_thread_default (context);
-
-            g_main_loop_unref(loop);
-            g_main_context_unref(context);
-        }
-
-        void Quit() {
-            if (m_main_loop) {
-                g_main_loop_quit(m_main_loop);
-                m_main_loop = NULL;
-            }
-            if (m_loop_thread) {
-                m_loop_thread = nullptr;
-            }
-
-            if (m_connection) {
-                if (SOUP_WEBSOCKET_STATE_OPEN == soup_websocket_connection_get_state (m_connection)) {
-                    soup_websocket_connection_close (m_connection, 1000, "");
-                }
-                g_object_unref (m_connection);
-                m_connection = NULL;
-            }
-
-            if (m_soup_session) {
-                g_object_unref(m_soup_session);
-                m_soup_session = NULL;
-            }
-            if (m_soup_message) {
-                g_object_unref(m_soup_message);
-                m_soup_message = NULL;
-            }
-        }
-
-
-        static gboolean AsyncConnectFun(gpointer user_data) {
-            XRSocketClient* client = (XRSocketClient*)user_data;
-            if (client) {
-                client->ConnectServer();
-            }
-            return G_SOURCE_REMOVE;
-        }
-
-        static gboolean ServerConnectedCallback(SoupSession * session, GAsyncResult * res, void *user_data) {
-            XRSocketClient* client = (XRSocketClient*)user_data;
-            if (client) {
-                return client->OnServerConnected(session, res);
-            }
-            return FALSE;
-        }
-
-        static void ServerClosedCallback(SoupWebsocketConnection* conn, void *user_data) {
-            XRSocketClient* client = (XRSocketClient*)user_data;
-            if (client) {
-                client->OnServerClosed(conn);
-            }
-        }
-        static void ServerMessageCallback(SoupWebsocketConnection * conn, SoupWebsocketDataType type, GBytes * message,void *user_data) {
-            XRSocketClient* client = (XRSocketClient*)user_data;
-            if (client) {
-                client->OnServerMessage(conn, type, message);
-            }
-        }
-
-        bool OnServerConnected(SoupSession * session, GAsyncResult * res) {
-            GError *error = NULL;
-
-            // 创建连接对像
-            m_connection = soup_session_websocket_connect_finish (session, res, &error);
-            if (error) {
-                Quit();
-                g_error_free (error);
-                return false;
-            }
-
-            soup_websocket_connection_set_max_incoming_payload_size(m_connection, 16 * 1024 * 1024);
-            // 心跳时间
-            soup_websocket_connection_set_keepalive_interval(m_connection, 1);
-
-            g_signal_connect (m_connection, "message", G_CALLBACK (ServerMessageCallback), this);
-            g_signal_connect (m_connection, "closed", G_CALLBACK (ServerClosedCallback), this);
-            return true;
-        }
-
-        void OnServerClosed(SoupWebsocketConnection* connection) {
-            SoupWebsocketState state = soup_websocket_connection_get_state(connection);
-            // 如果连接已经被关闭，就尝试重新建立连接
-            if (state == SOUP_WEBSOCKET_STATE_CLOSED) {
-                Quit();
-            }
-        }
-        void OnServerMessage(SoupWebsocketConnection * connection, SoupWebsocketDataType type, GBytes * message) {
-            gsize size;
-            gchar *text = nullptr, *data = nullptr;
-
-            switch (type) {
-                case SOUP_WEBSOCKET_DATA_BINARY:
-                    data = (gchar*)g_bytes_unref_to_data (message, &size);
-                    g_free(data);
-                    break;
-
-                case SOUP_WEBSOCKET_DATA_TEXT:
-                    data = (gchar*)g_bytes_unref_to_data (message, &size);
-                    text = g_strndup (data, size);
-
-                    g_free (text);
-                    g_free (data);
-                    break;
-
-                default:
-                    break;
-            }
-        }
-
-        void ConnectServer() {
-            const char *https_aliases[] = { "wss", NULL };
-            m_soup_session = soup_session_new_with_options (
-                    SOUP_SESSION_SSL_STRICT, TRUE,
-                    SOUP_SESSION_HTTPS_ALIASES, https_aliases, NULL);
-
-            gchar *server_url = g_strdup(m_server_ip.c_str());
-            m_soup_message = soup_message_new (SOUP_METHOD_GET, server_url);
-            g_free (server_url);
-
-            // Once connected, we will register
-            soup_session_websocket_connect_async (m_soup_session, m_soup_message, NULL, NULL, NULL,
-                                                  (GAsyncReadyCallback) ServerConnectedCallback, this);
-        }
+        static void ServerMessageCallback(SoupWebsocketConnection * conn, SoupWebsocketDataType type, GBytes * message,void *user_data);
+        void OnServerMessage(SoupWebsocketConnection * connection, SoupWebsocketDataType type, GBytes * message);
 
     protected:
         std::shared_ptr<std::thread> m_loop_thread;
@@ -541,6 +404,161 @@ namespace XRClient {
         SoupWebsocketConnection *m_connection = NULL;
         std::string m_server_ip;
     };
+
+
+    void XRSocketClient::Start(const char* server_ip) {
+        if (nullptr != m_loop_thread) {
+            return;
+        }
+
+        if (server_ip) {
+            m_server_ip = server_ip;
+        }
+        m_loop_thread = std::make_shared<std::thread>([this]() {
+            pthread_setname_np(m_thread_handle, "ClientXRLoop");
+            m_thread_handle = 0;
+            RunLoop();
+        });
+        m_thread_handle = m_loop_thread->native_handle();
+        m_loop_thread->detach();
+    }
+
+    void XRSocketClient::RunLoop() {
+        GMainContext *context = g_main_context_new ();
+
+        g_main_context_invoke(context, (GSourceFunc) AsyncConnectFun, this);
+        g_main_context_push_thread_default (context);
+
+        GMainLoop *loop = g_main_loop_new(context, FALSE);
+        m_main_loop = loop;
+
+        g_main_loop_run (loop);
+
+        g_main_context_pop_thread_default (context);
+
+        g_main_loop_unref(loop);
+        g_main_context_unref(context);
+    }
+
+    void XRSocketClient::Quit() {
+        if (m_main_loop) {
+            g_main_loop_quit(m_main_loop);
+            m_main_loop = NULL;
+        }
+        if (m_loop_thread) {
+            m_loop_thread = nullptr;
+        }
+
+        if (m_connection) {
+            if (SOUP_WEBSOCKET_STATE_OPEN == soup_websocket_connection_get_state (m_connection)) {
+                soup_websocket_connection_close (m_connection, 1000, "");
+            }
+            g_object_unref (m_connection);
+            m_connection = NULL;
+        }
+
+        if (m_soup_session) {
+            g_object_unref(m_soup_session);
+            m_soup_session = NULL;
+        }
+        if (m_soup_message) {
+            g_object_unref(m_soup_message);
+            m_soup_message = NULL;
+        }
+    }
+
+
+    gboolean XRSocketClient::AsyncConnectFun(gpointer user_data) {
+        XRSocketClient* client = (XRSocketClient*)user_data;
+        if (client) {
+            client->ConnectServer();
+        }
+        return G_SOURCE_REMOVE;
+    }
+    void XRSocketClient::ConnectServer() {
+        const char *https_aliases[] = { "wss", NULL };
+        m_soup_session = soup_session_new_with_options (
+                SOUP_SESSION_SSL_STRICT, TRUE,
+                SOUP_SESSION_HTTPS_ALIASES, https_aliases, NULL);
+
+        gchar *server_url = g_strdup(m_server_ip.c_str());
+        m_soup_message = soup_message_new (SOUP_METHOD_GET, server_url);
+        g_free (server_url);
+
+        // Once connected, we will register
+        soup_session_websocket_connect_async (m_soup_session, m_soup_message, NULL, NULL, NULL,
+                                              (GAsyncReadyCallback) ServerConnectedCallback, this);
+    }
+
+    gboolean XRSocketClient::ServerConnectedCallback(SoupSession * session, GAsyncResult * res, void *user_data) {
+        XRSocketClient* client = (XRSocketClient*)user_data;
+        if (client) {
+            return client->OnServerConnected(session, res);
+        }
+        return FALSE;
+    }
+    bool XRSocketClient::OnServerConnected(SoupSession * session, GAsyncResult * res) {
+        GError *error = NULL;
+
+        // 创建连接对像
+        m_connection = soup_session_websocket_connect_finish (session, res, &error);
+        if (error) {
+            Quit();
+            g_error_free (error);
+            return false;
+        }
+
+        soup_websocket_connection_set_max_incoming_payload_size(m_connection, 16 * 1024 * 1024);
+        // 心跳时间
+        soup_websocket_connection_set_keepalive_interval(m_connection, 1);
+
+        g_signal_connect (m_connection, "message", G_CALLBACK (ServerMessageCallback), this);
+        g_signal_connect (m_connection, "closed", G_CALLBACK (ServerClosedCallback), this);
+        return true;
+    }
+
+    void XRSocketClient::ServerClosedCallback(SoupWebsocketConnection* conn, void *user_data) {
+        XRSocketClient* client = (XRSocketClient*)user_data;
+        if (client) {
+            client->OnServerClosed(conn);
+        }
+    }
+    void XRSocketClient::OnServerClosed(SoupWebsocketConnection* connection) {
+        SoupWebsocketState state = soup_websocket_connection_get_state(connection);
+        // 如果连接已经被关闭，就尝试重新建立连接
+        if (state == SOUP_WEBSOCKET_STATE_CLOSED) {
+            Quit();
+        }
+    }
+
+    void XRSocketClient::ServerMessageCallback(SoupWebsocketConnection * conn, SoupWebsocketDataType type, GBytes * message,void *user_data) {
+        XRSocketClient* client = (XRSocketClient*)user_data;
+        if (client) {
+            client->OnServerMessage(conn, type, message);
+        }
+    }
+    void XRSocketClient::OnServerMessage(SoupWebsocketConnection * connection, SoupWebsocketDataType type, GBytes * message) {
+        gsize size;
+        gchar *text = nullptr, *data = nullptr;
+
+        switch (type) {
+            case SOUP_WEBSOCKET_DATA_BINARY:
+                data = (gchar*)g_bytes_unref_to_data (message, &size);
+                g_free(data);
+                break;
+
+            case SOUP_WEBSOCKET_DATA_TEXT:
+                data = (gchar*)g_bytes_unref_to_data (message, &size);
+                text = g_strndup (data, size);
+
+                g_free (text);
+                g_free (data);
+                break;
+
+            default:
+                break;
+        }
+    }
 }
 
 XRClient::XRSocketClient g_client;
