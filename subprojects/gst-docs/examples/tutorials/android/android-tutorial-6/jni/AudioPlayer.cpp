@@ -487,6 +487,7 @@ namespace XRClient {
             SoupWebsocketState state = soup_websocket_connection_get_state(connection);
             // 如果连接已经被关闭，就尝试重新建立连接
             if (state == SOUP_WEBSOCKET_STATE_CLOSED) {
+                Quit();
             }
         }
         void OnServerMessage(SoupWebsocketConnection * connection, SoupWebsocketDataType type, GBytes * message) {

@@ -3,8 +3,6 @@
 #include <gst/gst.h>
 #include <gobject\gsignal.h>
 
-#define GST_USE_UNSTABLE_API
-#include <gst/webrtc/webrtc.h>
 #include <libsoup/soup.h>
 
 
@@ -12,6 +10,36 @@
 #include <mutex>
 
 #define DEFAULT_PORT 8088
+
+struct _ReceiverEntry
+{
+  SoupWebsocketConnection* connection;
+};
+
+typedef struct _ReceiverEntry ReceiverEntry;
+ReceiverEntry* create_receiver_entry(SoupWebsocketConnection* connection) {
+  GError* error;
+  ReceiverEntry* receiver_entry;
+
+  receiver_entry = g_new0(ReceiverEntry, 1);
+  receiver_entry->connection = connection;
+
+  g_object_ref(G_OBJECT(connection));
+
+
+  return receiver_entry;
+}
+void destroy_receiver_entry(gpointer receiver_entry_ptr) {
+  ReceiverEntry* receiver_entry = (ReceiverEntry*)receiver_entry_ptr;
+
+  g_assert(receiver_entry != NULL);
+  if (receiver_entry->connection != NULL)
+    g_object_unref(G_OBJECT(receiver_entry->connection));
+}
+
+
+
+
 
 
 SoupWebsocketConnection* g_connection = NULL;
@@ -22,18 +50,19 @@ std::mutex g_thread_lock;
 
 void soup_websocket_closed_cb(SoupWebsocketConnection* connection,
   gpointer user_data) {
-  printf("XR-Server connection:%p closed \n", connection);
-  if (g_connection) {
-    g_object_unref(G_OBJECT(g_connection));
-    g_connection = NULL;
-  }
-
   std::lock_guard<std::mutex> auto_lock(g_thread_lock);
   g_sending_loop = false;
   if (nullptr != g_send_thread) {
     g_send_thread->join();
     g_send_thread = nullptr;
   }
+
+  printf("XR-Server connection:%p closed \n", connection);
+  if (g_connection) {
+    //g_object_unref(G_OBJECT(g_connection));
+    g_connection = NULL;
+  }
+
 }
 
 void soup_websocket_message_cb(G_GNUC_UNUSED SoupWebsocketConnection* connection,
@@ -62,6 +91,7 @@ void soup_websocket_handler(SoupServer* server, SoupWebsocketConnection* connect
 
   printf("XR-Server server:%p get connection:%p, path:%s, client:%p \n", server, connection, path, client);
 
+
   g_signal_connect(G_OBJECT(connection), "closed",
     G_CALLBACK(soup_websocket_closed_cb), user_data);
 
@@ -71,6 +101,7 @@ void soup_websocket_handler(SoupServer* server, SoupWebsocketConnection* connect
 
   g_signal_connect(G_OBJECT(connection), "message",
     G_CALLBACK(soup_websocket_message_cb), user_data);
+
 
   //start send thread
   std::lock_guard<std::mutex> auto_lock(g_thread_lock);
@@ -87,23 +118,33 @@ void soup_websocket_handler(SoupServer* server, SoupWebsocketConnection* connect
 
 
 void start_soup_server() {
+  int argc = 0;
+  gst_init(&argc, NULL);
   SoupServer* server;
   guint port;
+
+  GHashTable* receiver_entry_table =
+    g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL,
+      destroy_receiver_entry);
+
 
   // Create SoupServer instance
   server = soup_server_new(SOUP_SERVER_SERVER_HEADER, "Demo Server", NULL);
 
   // Set up the request handler
   soup_server_add_websocket_handler(server, "/test", NULL, NULL,
-    soup_websocket_handler, NULL, NULL);
+    soup_websocket_handler, (gpointer)receiver_entry_table, NULL);
 
   // Set the port to listen on
   port = DEFAULT_PORT;
-  soup_server_listen_all(server, port, (SoupServerListenOptions)0/*SOUP_SERVER_LISTEN_IPV4_ONLY*/, NULL);
+  soup_server_listen_all(server, port, SOUP_SERVER_LISTEN_IPV4_ONLY, NULL);
 
   // Run the main loop
-  g_main_loop_run(g_main_loop_new(NULL, FALSE));
+  GMainLoop* loop = g_main_loop_new(NULL, false);
+  g_main_loop_run(loop);
 
   // Clean up
   g_object_unref(server);
+  g_object_unref(loop);
+  g_hash_table_destroy(receiver_entry_table);
 }
