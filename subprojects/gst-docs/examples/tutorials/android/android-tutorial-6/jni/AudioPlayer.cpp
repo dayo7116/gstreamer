@@ -364,6 +364,18 @@ namespace PLAY {
   };
 }
 
+static void log_callback(SoupLogger         *logger,
+                         SoupLoggerLogLevel  level,
+                         char                direction,
+                         const char         *data,
+                         gpointer            user_data) {
+    if (data) {
+        __android_log_print (ANDROID_LOG_ERROR, "XRSocket",
+                             "Soup Log: %s", data);
+    }
+
+}
+
 namespace XRClient {
     class SocketMessageListener {
     public:
@@ -408,6 +420,7 @@ namespace XRClient {
         GMainLoop *m_main_loop = NULL;
         SoupSession * m_soup_session = NULL;
         SoupMessage *m_soup_message = NULL;
+        SoupLogger *m_logger = NULL;
 
         SoupWebsocketConnection *m_connection = NULL;
         std::string m_server_ip;
@@ -476,6 +489,11 @@ namespace XRClient {
             g_object_unref(m_soup_message);
             m_soup_message = NULL;
         }
+
+        if (m_logger) {
+            g_object_unref(m_logger);
+            m_logger = NULL;
+        }
     }
 
 
@@ -492,10 +510,17 @@ namespace XRClient {
                 SOUP_SESSION_SSL_STRICT, TRUE,
                 SOUP_SESSION_HTTPS_ALIASES, https_aliases, NULL);
 
+        // Set up SoupLogger
+        m_logger = soup_logger_new(SOUP_LOGGER_LOG_BODY, -1);
+        soup_logger_set_printer(m_logger, log_callback, NULL, NULL);
+        soup_session_add_feature(m_soup_session, SOUP_SESSION_FEATURE(m_logger));
+
         gchar *server_url = g_strdup(m_server_ip.c_str());
         m_soup_message = soup_message_new (SOUP_METHOD_GET, server_url);
         g_free (server_url);
 
+        __android_log_print (ANDROID_LOG_ERROR, "XRSocket",
+                             "%s starts to connect Server", m_name.c_str());
         // Once connected, we will register
         soup_session_websocket_connect_async (m_soup_session, m_soup_message, NULL, NULL, NULL,
                                               (GAsyncReadyCallback) ServerConnectedCallback, this);
@@ -514,14 +539,15 @@ namespace XRClient {
 
         // 创建连接对像
         m_connection = soup_session_websocket_connect_finish (session, res, &error);
-        __android_log_print (ANDROID_LOG_ERROR, "XRSocket",
-                             "%s gets connection %p connected", m_name.c_str(), m_connection);
         if (error) {
+            __android_log_print (ANDROID_LOG_ERROR, "XRSocket",
+                                 "%s fails to connected code:%d, resaon:%s", m_name.c_str(), error->code, error->message);
             Quit();
             g_error_free (error);
             return false;
         }
-
+        __android_log_print (ANDROID_LOG_ERROR, "XRSocket",
+                             "%s gets connection %p connected", m_name.c_str(), m_connection);
         soup_websocket_connection_set_max_incoming_payload_size(m_connection, 16 * 1024 * 1024);
         // 心跳时间
         soup_websocket_connection_set_keepalive_interval(m_connection, 1);

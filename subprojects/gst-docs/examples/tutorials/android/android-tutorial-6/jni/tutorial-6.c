@@ -179,7 +179,7 @@ gst_native_play (JNIEnv * env, jobject thiz)
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data)
     return;
-  GST_DEBUG ("Setting state to PLAYING");
+//  GST_DEBUG ("Setting state to PLAYING");
   start_client();
 }
 
@@ -190,7 +190,7 @@ gst_native_pause (JNIEnv * env, jobject thiz)
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data)
     return;
-  GST_DEBUG ("Setting state to PAUSED");
+//  GST_DEBUG ("Setting state to PAUSED");
   stop_client();
 }
 

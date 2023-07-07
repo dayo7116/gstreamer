@@ -245,9 +245,17 @@ public:
       const char* chunk = binaryData + i;
 
       // ·¢ËÍÊý¾Ý¿é
+      SoupWebsocketState state = soup_websocket_connection_get_state(connection);
+      if (SOUP_WEBSOCKET_STATE_OPEN != state) {
+        break;
+      }
       soup_websocket_connection_send_binary(connection, chunk, chunkSizeActual);
     }
 
+    SoupWebsocketState state = soup_websocket_connection_get_state(connection);
+    if (SOUP_WEBSOCKET_STATE_OPEN != state) {
+      return;
+    }
     std::string video_str("video end");
     soup_websocket_connection_send_text(connection, video_str.c_str());
 
