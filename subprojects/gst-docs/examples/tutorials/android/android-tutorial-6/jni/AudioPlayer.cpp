@@ -17,6 +17,7 @@
 
 #if ON_WINDOWS
 #else
+#include <android/log.h>
 #include <jni.h>
 #include <android/asset_manager_jni.h>
 #include <android/asset_manager.h>
@@ -363,11 +364,16 @@ namespace PLAY {
   };
 }
 
-
 namespace XRClient {
+    class SocketMessageListener {
+    public:
+        virtual void OnMessage(SoupWebsocketConnection * conn, SoupWebsocketDataType type, gchar *data, gsize size) = 0;
+    };
+
     class XRSocketClient {
     public:
-        XRSocketClient() {
+        XRSocketClient(const char* name)
+        : m_name(name) {
 
         }
         virtual ~XRSocketClient() {
@@ -375,7 +381,8 @@ namespace XRClient {
         }
 
     public:
-        void Start(const char* server_ip);
+        //连接到server并接收消息
+        void Start(const char* server_ip, std::shared_ptr<SocketMessageListener> processor);
         void Quit();
 
     protected:
@@ -394,6 +401,7 @@ namespace XRClient {
         void OnServerMessage(SoupWebsocketConnection * connection, SoupWebsocketDataType type, GBytes * message);
 
     protected:
+        std::string m_name;
         std::shared_ptr<std::thread> m_loop_thread;
         pthread_t m_thread_handle = 0;
 
@@ -403,10 +411,12 @@ namespace XRClient {
 
         SoupWebsocketConnection *m_connection = NULL;
         std::string m_server_ip;
+
+        std::weak_ptr<SocketMessageListener> m_data_processor;
     };
 
 
-    void XRSocketClient::Start(const char* server_ip) {
+    void XRSocketClient::Start(const char* server_ip, std::shared_ptr<SocketMessageListener> processor) {
         if (nullptr != m_loop_thread) {
             return;
         }
@@ -414,6 +424,7 @@ namespace XRClient {
         if (server_ip) {
             m_server_ip = server_ip;
         }
+        m_data_processor = processor;
         m_loop_thread = std::make_shared<std::thread>([this]() {
             pthread_setname_np(m_thread_handle, "ClientXRLoop");
             m_thread_handle = 0;
@@ -488,6 +499,7 @@ namespace XRClient {
         // Once connected, we will register
         soup_session_websocket_connect_async (m_soup_session, m_soup_message, NULL, NULL, NULL,
                                               (GAsyncReadyCallback) ServerConnectedCallback, this);
+
     }
 
     gboolean XRSocketClient::ServerConnectedCallback(SoupSession * session, GAsyncResult * res, void *user_data) {
@@ -502,6 +514,8 @@ namespace XRClient {
 
         // 创建连接对像
         m_connection = soup_session_websocket_connect_finish (session, res, &error);
+        __android_log_print (ANDROID_LOG_ERROR, "XRSocket",
+                             "%s gets connection %p connected", m_name.c_str(), m_connection);
         if (error) {
             Quit();
             g_error_free (error);
@@ -525,9 +539,12 @@ namespace XRClient {
     }
     void XRSocketClient::OnServerClosed(SoupWebsocketConnection* connection) {
         SoupWebsocketState state = soup_websocket_connection_get_state(connection);
+        __android_log_print (ANDROID_LOG_ERROR, "XRSocket",
+                             "%s gets connection %p closed", m_name.c_str(), m_connection);
         // 如果连接已经被关闭，就尝试重新建立连接
         if (state == SOUP_WEBSOCKET_STATE_CLOSED) {
             Quit();
+            //TODO: @dayong 添加重连策略
         }
     }
 
@@ -538,37 +555,78 @@ namespace XRClient {
         }
     }
     void XRSocketClient::OnServerMessage(SoupWebsocketConnection * connection, SoupWebsocketDataType type, GBytes * message) {
-        gsize size;
-        gchar *text = nullptr, *data = nullptr;
-
-        switch (type) {
-            case SOUP_WEBSOCKET_DATA_BINARY:
-                data = (gchar*)g_bytes_unref_to_data (message, &size);
-                g_free(data);
-                break;
-
-            case SOUP_WEBSOCKET_DATA_TEXT:
-                data = (gchar*)g_bytes_unref_to_data (message, &size);
-                text = g_strndup (data, size);
-
-                g_free (text);
-                g_free (data);
-                break;
-
-            default:
-                break;
+        std::shared_ptr<SocketMessageListener> processor = m_data_processor.lock();
+        if (processor) {
+            gsize size;
+            gchar *data = (gchar*)g_bytes_unref_to_data (message, &size);
+            processor->OnMessage(connection, type, data, size);
+            g_free (data);
         }
     }
 }
 
-XRClient::XRSocketClient g_client;
+XRClient::XRSocketClient g_video_client("video");
+XRClient::XRSocketClient g_audio_client("audio");
 
-void start_soup_client(const char* server_ip) {
-    g_client.Start(server_ip);
+class VideoMessageListener : public XRClient::SocketMessageListener {
+public:
+    VideoMessageListener(){}
+    virtual ~VideoMessageListener(){}
+
+    void OnMessage(SoupWebsocketConnection * conn, SoupWebsocketDataType type, gchar *data, gsize size) override {
+        switch (type) {
+            case SOUP_WEBSOCKET_DATA_BINARY:
+                break;
+
+            case SOUP_WEBSOCKET_DATA_TEXT:
+                /* Convert to NULL-terminated string */
+                gchar *text = g_strndup (data, size);
+                g_free (text);
+                break;
+        }
+    }
+};
+
+class AudioMessageListener : public XRClient::SocketMessageListener {
+public:
+    AudioMessageListener(){}
+    virtual ~AudioMessageListener(){}
+
+    void OnMessage(SoupWebsocketConnection * conn, SoupWebsocketDataType type, gchar *data, gsize size) override {
+        switch (type) {
+            case SOUP_WEBSOCKET_DATA_BINARY:
+                break;
+
+            case SOUP_WEBSOCKET_DATA_TEXT:
+                /* Convert to NULL-terminated string */
+                gchar *text = g_strndup (data, size);
+                g_free (text);
+                break;
+        }
+    }
+};
+
+std::shared_ptr<VideoMessageListener> g_video_msg_listener;
+std::shared_ptr<AudioMessageListener> g_audio_msg_listener;
+
+void start_video_client(const char* server_ip) {
+    if (!g_video_msg_listener) {
+        g_video_msg_listener = std::make_shared<VideoMessageListener>();
+    }
+    g_video_client.Start(server_ip, g_video_msg_listener);
+}
+void stop_video_client() {
+    g_video_client.Quit();
 }
 
-void stop_soup_client() {
-    g_client.Quit();
+void start_audio_client(const char* server_ip) {
+    if (!g_audio_msg_listener) {
+        g_audio_msg_listener = std::make_shared<AudioMessageListener>();
+    }
+    g_audio_client.Start(server_ip, g_audio_msg_listener);
+}
+void stop_audio_client() {
+    g_audio_client.Quit();
 }
 
 PLAY::AudioPlayer g_player;

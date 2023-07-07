@@ -19,8 +19,11 @@ extern "C" {
 
   void add_audio_frame(struct AudioBlock* block);
 
-  void start_soup_client(const char* server_ip);
-  void stop_soup_client();
+  void start_video_client(const char* server_ip);
+  void stop_video_client();
+
+  void start_audio_client(const char* server_ip);
+  void stop_audio_client();
 
 #ifdef __cplusplus
 }

@@ -119,6 +119,15 @@ check_initialization_complete (CustomData * data)
   }
 }
 
+void start_client() {
+    start_video_client("ws://192.168.6.31:8088/video");
+    start_audio_client("ws://192.168.6.31:8089/audio");
+}
+void stop_client() {
+    stop_video_client();
+    stop_audio_client();
+}
+
 /*
  * Java Bindings
  */
@@ -141,7 +150,7 @@ gst_native_init (JNIEnv * env, jobject thiz)
     data->sourceid = 0;
 
 //    start_play();
-    start_soup_client("ws://192.168.6.31:8088/test");
+    start_client();
 }
 
 /* Quit the main loop, remove the native thread and free resources */
@@ -171,7 +180,7 @@ gst_native_play (JNIEnv * env, jobject thiz)
   if (!data)
     return;
   GST_DEBUG ("Setting state to PLAYING");
-  start_soup_client("ws://192.168.6.31:8088/test");
+  start_client();
 }
 
 /* Set pipeline to PAUSED state */
@@ -182,8 +191,7 @@ gst_native_pause (JNIEnv * env, jobject thiz)
   if (!data)
     return;
   GST_DEBUG ("Setting state to PAUSED");
-
-  stop_soup_client();
+  stop_client();
 }
 
 /* Static class initializer: retrieve method and field IDs */
