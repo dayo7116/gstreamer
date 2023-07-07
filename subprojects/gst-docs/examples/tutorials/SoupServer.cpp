@@ -5,10 +5,11 @@
 
 #include <libsoup/soup.h>
 
-
+#include <algorithm>
 #include <thread>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #define VIDEO_PORT 8088
 #define AUDIO_PORT 8089
@@ -39,6 +40,11 @@ private:
 
 static int g_close_count = 0;
 
+class DataSender {
+public:
+  virtual void OnSendingData(SoupWebsocketConnection* connection) = 0;
+};
+
 class CustomSoupServer : public CThread {
 public:
   CustomSoupServer(int port, const char* server_name, const char* path)
@@ -47,6 +53,10 @@ public:
 
   bool Init() override;
   void Run() override;
+
+  void SetSender(std::shared_ptr<DataSender> sender) {
+    m_sender = sender;
+  }
 
   static void soup_websocket_closed_cb(SoupWebsocketConnection* connection, gpointer user_data) {
     CustomSoupServer* server = (CustomSoupServer*)user_data;
@@ -70,6 +80,15 @@ public:
     }
   }
 
+  static gboolean send_frame_data_async(gpointer user_data) {
+    CustomSoupServer* custom_server = (CustomSoupServer*)user_data;
+    if (custom_server) {
+      custom_server->OnSendingData();
+    }
+
+    return G_SOURCE_REMOVE;
+  }
+
 protected:
   void OnClientConnected(SoupServer* server, SoupWebsocketConnection* connection,
     const char* path, SoupClientContext* client) {
@@ -79,12 +98,28 @@ protected:
     g_signal_connect(G_OBJECT(connection), "closed",
       G_CALLBACK(soup_websocket_closed_cb), this);
 
-
-    m_connection = connection;
-    g_object_ref(G_OBJECT(m_connection));
+    {
+      std::lock_guard<std::mutex> auto_lock(m_connection_lock);
+      m_connection = connection;
+      g_object_ref(G_OBJECT(m_connection));
+    }
 
     g_signal_connect(G_OBJECT(connection), "message",
       G_CALLBACK(soup_websocket_message_cb), this);
+
+    m_sending_loop = true;
+    if (!m_send_data_thread) {
+      m_send_data_thread =
+        std::make_shared<std::thread>([this]() {
+
+          while (m_sending_loop) {
+            g_main_context_invoke(m_context, (GSourceFunc)send_frame_data_async,
+              this);
+            g_usleep(500);
+          }
+        });
+    }
+
   }
   void OnMessage(G_GNUC_UNUSED SoupWebsocketConnection* connection,
     SoupWebsocketDataType data_type, GBytes* message) {
@@ -112,28 +147,60 @@ protected:
     if (g_close_count % 2 == 0) {
       printf("\n\n\n\n");
     }
-    if (m_connection) {
-      g_object_unref(G_OBJECT(m_connection));
-      m_connection = NULL;
+
+    {
+      std::lock_guard<std::mutex> auto_lock(m_connection_lock);
+      if (m_connection) {
+        g_object_unref(G_OBJECT(m_connection));
+        m_connection = NULL;
+      }
+    }
+
+    m_sending_loop = false;
+    if (m_send_data_thread) {
+      m_send_data_thread->join();
+      m_send_data_thread = nullptr;
+    }
+  }
+
+  void OnSendingData() {
+    std::lock_guard<std::mutex> auto_lock(m_connection_lock);
+    if (NULL == m_connection) {
+      return;
+    }
+    SoupWebsocketState state = soup_websocket_connection_get_state(m_connection);
+    if (SOUP_WEBSOCKET_STATE_OPEN != state) {
+      return;
+    }
+    if (m_sender) {
+      m_sender->OnSendingData(m_connection);
     }
   }
   
 protected:
   GMainLoop* m_loop = NULL;
+  GMainContext* m_context = nullptr;
 
   SoupServer* m_server = NULL;
   SoupWebsocketConnection* m_connection = NULL;
+  std::mutex m_connection_lock;
 
   int m_port = 0;
   std::string m_name;
   std::string m_path;
+
+  bool m_sending_loop = false;
+  std::shared_ptr<std::thread> m_send_data_thread;
+
+  std::shared_ptr<DataSender> m_sender;
 };
 
 bool CustomSoupServer::Init() {
   int argc = 0;
   gst_init(&argc, NULL);
 
-  m_loop = g_main_loop_new(NULL, false);
+  m_context = g_main_context_default();
+  m_loop = g_main_loop_new(m_context, false);
 
   m_server = soup_server_new(SOUP_SERVER_SERVER_HEADER, m_name.c_str(), NULL);
 
@@ -159,15 +226,65 @@ void CustomSoupServer::Run() {
   m_loop = NULL;
 }
 
+class VideoDataSender : public DataSender {
+public:
+  void OnSendingData(SoupWebsocketConnection* connection) override {
+    std::vector<uint8_t> frame_data;
+    frame_data.resize(1024 * 1024 * 4);
+
+    // 发送大的数据包
+    const size_t chunkSize = 1024 * 8;  // 设置数据块的大小
+    const char* binaryData =
+      (const char*)frame_data.data();  // 假设这里是您要发送的大型二进制数据
+    size_t binaryDataSize =
+      frame_data.size();  // 假设这里是您要发送的大型二进制数据的大小
+
+  // 将大型二进制数据拆分成多个较小的数据块并逐一发送
+    for (size_t i = 0; i < binaryDataSize; i += chunkSize) {
+      size_t chunkSizeActual = std::min(chunkSize, binaryDataSize - i);
+      const char* chunk = binaryData + i;
+
+      // 发送数据块
+      soup_websocket_connection_send_binary(connection, chunk, chunkSizeActual);
+    }
+
+    std::string video_str("video end");
+    soup_websocket_connection_send_text(connection, video_str.c_str());
+
+    printf("XR-Server Video data sended \n");
+  }
+};
+
+class AudioDataSender : public DataSender {
+public:
+  void OnSendingData(SoupWebsocketConnection* connection) override {
+    std::vector<uint8_t> data;
+    data.resize(200);
+    for (int i = 0; i < 200; i++) {
+      data[i] = i;
+    }
+    soup_websocket_connection_send_binary(connection, data.data(), data.size());
+
+    printf("XR-Server Audio data sended \n");
+  }
+};
+
 CustomSoupServer g_video_server(VIDEO_PORT, "Video", "/video");
 CustomSoupServer g_audio_server(AUDIO_PORT, "Audio", "/audio");
 
+std::shared_ptr<VideoDataSender> g_video_sender;
+std::shared_ptr<AudioDataSender> g_audio_sender;
+
 void start_soup_server() {
+  g_video_sender = std::make_shared<VideoDataSender>();
+  g_audio_sender = std::make_shared<AudioDataSender>();
   std::thread video_thread([]() {
     g_video_server.Start();
+    g_video_server.SetSender(g_video_sender);
    });
   std::thread audio_thread([]() {
     g_audio_server.Start();
+    g_audio_server.SetSender(g_audio_sender);
    });
   while (true)
   {

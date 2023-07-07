@@ -574,6 +574,8 @@ public:
     virtual ~VideoMessageListener(){}
 
     void OnMessage(SoupWebsocketConnection * conn, SoupWebsocketDataType type, gchar *data, gsize size) override {
+        __android_log_print (ANDROID_LOG_ERROR, "XRSocket",
+                             "Video gets message data, type:%d, count:%d", type, size);
         switch (type) {
             case SOUP_WEBSOCKET_DATA_BINARY:
                 break;
@@ -593,6 +595,8 @@ public:
     virtual ~AudioMessageListener(){}
 
     void OnMessage(SoupWebsocketConnection * conn, SoupWebsocketDataType type, gchar *data, gsize size) override {
+        __android_log_print (ANDROID_LOG_ERROR, "XRSocket",
+                             "Audio gets message data, type:%d, count:%d", type, size);
         switch (type) {
             case SOUP_WEBSOCKET_DATA_BINARY:
                 break;
