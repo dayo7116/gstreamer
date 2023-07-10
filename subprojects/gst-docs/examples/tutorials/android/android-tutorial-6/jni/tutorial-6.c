@@ -122,10 +122,12 @@ check_initialization_complete (CustomData * data)
 void start_client() {
     start_video_client("ws://192.168.6.31:8088/video");
     start_audio_client("ws://192.168.6.31:8089/audio");
+    start_sender_loop();
 }
 void stop_client() {
     stop_video_client();
     stop_audio_client();
+    stop_sender_loop();
 }
 
 /*

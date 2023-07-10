@@ -25,6 +25,9 @@ extern "C" {
   void start_audio_client(const char* server_ip);
   void stop_audio_client();
 
+  void start_sender_loop();
+  void stop_sender_loop();
+
 #ifdef __cplusplus
 }
 #endif

@@ -232,19 +232,19 @@ public:
     std::vector<uint8_t> frame_data;
     frame_data.resize(1024 * 1024 * 4);
 
-    // ·¢ËÍ´óµÄÊı¾İ°ü
-    const size_t chunkSize = 1024 * 8;  // ÉèÖÃÊı¾İ¿éµÄ´óĞ¡
+    // å‘é€å¤§çš„æ•°æ®åŒ…
+    const size_t chunkSize = 1024 * 8;  // è®¾ç½®æ•°æ®å—çš„å¤§å°
     const char* binaryData =
-      (const char*)frame_data.data();  // ¼ÙÉèÕâÀïÊÇÄúÒª·¢ËÍµÄ´óĞÍ¶ş½øÖÆÊı¾İ
+      (const char*)frame_data.data();  // å‡è®¾è¿™é‡Œæ˜¯æ‚¨è¦å‘é€çš„å¤§å‹äºŒè¿›åˆ¶æ•°æ®
     size_t binaryDataSize =
-      frame_data.size();  // ¼ÙÉèÕâÀïÊÇÄúÒª·¢ËÍµÄ´óĞÍ¶ş½øÖÆÊı¾İµÄ´óĞ¡
+      frame_data.size();  // å‡è®¾è¿™é‡Œæ˜¯æ‚¨è¦å‘é€çš„å¤§å‹äºŒè¿›åˆ¶æ•°æ®çš„å¤§å°
 
-  // ½«´óĞÍ¶ş½øÖÆÊı¾İ²ğ·Ö³É¶à¸ö½ÏĞ¡µÄÊı¾İ¿é²¢ÖğÒ»·¢ËÍ
+  // å°†å¤§å‹äºŒè¿›åˆ¶æ•°æ®æ‹†åˆ†æˆå¤šä¸ªè¾ƒå°çš„æ•°æ®å—å¹¶é€ä¸€å‘é€
     for (size_t i = 0; i < binaryDataSize; i += chunkSize) {
       size_t chunkSizeActual = std::min(chunkSize, binaryDataSize - i);
       const char* chunk = binaryData + i;
 
-      // ·¢ËÍÊı¾İ¿é
+      // å‘é€æ•°æ®å—
       SoupWebsocketState state = soup_websocket_connection_get_state(connection);
       if (SOUP_WEBSOCKET_STATE_OPEN != state) {
         break;
