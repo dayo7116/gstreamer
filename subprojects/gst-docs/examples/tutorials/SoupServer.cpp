@@ -124,7 +124,7 @@ protected:
   void OnMessage(G_GNUC_UNUSED SoupWebsocketConnection* connection,
     SoupWebsocketDataType data_type, GBytes* message) {
 
-    printf("XR-Server %s connection:%p get msg \n", m_name.c_str(), connection);
+    //printf("XR-Server %s connection:%p get msg \n", m_name.c_str(), connection);
 
     const gchar* data = nullptr;
     gsize size;
@@ -259,7 +259,7 @@ public:
     std::string video_str("video end");
     soup_websocket_connection_send_text(connection, video_str.c_str());
 
-    printf("XR-Server Video data sended \n");
+    //printf("XR-Server Video data sended \n");
   }
 };
 
@@ -273,7 +273,7 @@ public:
     }
     soup_websocket_connection_send_binary(connection, data.data(), data.size());
 
-    printf("XR-Server Audio data sended \n");
+    //printf("XR-Server Audio data sended \n");
   }
 };
 
