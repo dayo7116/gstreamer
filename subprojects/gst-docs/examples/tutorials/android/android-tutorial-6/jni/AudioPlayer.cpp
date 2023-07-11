@@ -542,10 +542,12 @@ namespace XRClient {
 
   protected:
     std::string m_name;
+
+    std::mutex m_resource_lock;
+
     std::shared_ptr<std::thread> m_loop_thread;
     pthread_t m_thread_handle = 0;
 
-    std::mutex m_context_lock;
     GMainContext *m_context = NULL;
     GMainLoop *m_main_loop = NULL;
     SoupSession *m_soup_session = NULL;
@@ -568,6 +570,8 @@ namespace XRClient {
   void XRSocketClient::Start(const char *server_ip,
                              std::shared_ptr<SocketMessageListener> processor) {
     Log::Write(Log::Level::Info, Fmt("XR-Socket %s starts with server:%s, loop thread:%p", m_name.c_str(), server_ip ? server_ip : "", m_loop_thread.get()));
+
+    std::lock_guard<std::mutex> auto_lock(m_resource_lock);
 
     if (nullptr != m_loop_thread) {
       return;
@@ -596,7 +600,7 @@ namespace XRClient {
         }
 
         {
-          std::lock_guard<std::mutex> auto_lock(m_context_lock);
+          std::lock_guard<std::mutex> auto_lock(m_resource_lock);
           // 发送pose线程
           if(m_context) {
             g_main_context_invoke(m_context, (GSourceFunc) SendDataAsyncFn, this);
@@ -610,7 +614,7 @@ namespace XRClient {
   void XRSocketClient::RunLoop() {
     GMainContext *context = g_main_context_new();
     {
-      std::lock_guard<std::mutex> auto_lock(m_context_lock);
+      std::lock_guard<std::mutex> auto_lock(m_resource_lock);
       m_context = context;
     }
 
@@ -620,7 +624,10 @@ namespace XRClient {
     g_main_context_push_thread_default(context);
 
     GMainLoop *loop = g_main_loop_new(context, FALSE);
-    m_main_loop = loop;
+    {
+      std::lock_guard<std::mutex> auto_lock(m_resource_lock);
+      m_main_loop = loop;
+    }
 
     g_main_loop_run(loop);
 
@@ -633,50 +640,76 @@ namespace XRClient {
   }
 
   void XRSocketClient::Quit() {
-    Log::Write(Log::Level::Info, Fmt("XR-Socket %s starts to quit", m_name.c_str()));
+    Log::Write(Log::Level::Info, Fmt("XR-Socket %s starts to quit, quitting loop:%p", m_name.c_str(), m_main_loop));
+
+    GMainLoop *loop = NULL;
+    SoupWebsocketConnection *connection = NULL;
+    SoupSession *soup_session = NULL;
+    SoupMessage *soup_message = NULL;
+    SoupLogger *logger = NULL;
+
+    std::shared_ptr<std::thread> sending_thread;
     {
-      std::lock_guard<std::mutex> auto_lock(m_context_lock);
+      std::lock_guard<std::mutex> auto_lock(m_resource_lock);
       if (m_context) {
         m_context = NULL;
       }
-    }
-    if (m_main_loop) {
-      Log::Write(Log::Level::Info, Fmt("XR-Socket %s quitting loop:%p", m_name.c_str(), m_main_loop));
-      g_main_loop_quit(m_main_loop);
-      m_main_loop = NULL;
-    }
-    if (m_loop_thread) {
-      m_loop_thread = nullptr;
-    }
-
-    if (m_connection) {
-      if (SOUP_WEBSOCKET_STATE_OPEN ==
-          soup_websocket_connection_get_state(m_connection)) {
-        soup_websocket_connection_close(m_connection, 1000, "");
+      if (m_main_loop) {
+        loop = m_main_loop;
+        m_main_loop = NULL;
       }
-      g_object_unref(m_connection);
-      m_connection = NULL;
+      if (m_loop_thread) {
+        m_loop_thread = nullptr;
+      }
+      if (m_connection) {
+        connection = m_connection;
+        m_connection = NULL;
+      }
+      if (m_soup_session) {
+        soup_session = m_soup_session;
+        m_soup_session = NULL;
+      }
+      if (m_soup_message) {
+        soup_message = m_soup_message;
+        m_soup_message = NULL;
+      }
+      if (m_logger) {
+        logger = m_logger;
+        m_logger = NULL;
+      }
+
+      m_sending = false;
+      m_msg_cv.notify_one();
+      if (m_sending_thread) {
+        sending_thread = m_sending_thread;
+        m_sending_thread = nullptr;
+      }
+    }
+    if (loop) {
+      g_main_loop_quit(loop);
     }
 
-    if (m_soup_session) {
-      g_object_unref(m_soup_session);
-      m_soup_session = NULL;
-    }
-    if (m_soup_message) {
-      g_object_unref(m_soup_message);
-      m_soup_message = NULL;
-    }
-
-    if (m_logger) {
-      g_object_unref(m_logger);
-      m_logger = NULL;
+    if (connection) {
+      if (SOUP_WEBSOCKET_STATE_OPEN == soup_websocket_connection_get_state(connection)) {
+        Log::Write(Log::Level::Info, Fmt("XR-Socket %s close connection %p", m_name.c_str(), connection));
+        soup_websocket_connection_close(connection, 1000, "");
+      }
+      g_object_unref(connection);
     }
 
-    m_sending = false;
-    m_msg_cv.notify_one();
-    if (m_sending_thread) {
-      m_sending_thread->join();
-      m_sending_thread = nullptr;
+    if (soup_session) {
+      g_object_unref(soup_session);
+    }
+    if (soup_message) {
+      g_object_unref(soup_message);
+    }
+
+    if (logger) {
+      g_object_unref(logger);
+    }
+
+    if (sending_thread) {
+      sending_thread->join();
     }
   }
 
@@ -691,26 +724,29 @@ namespace XRClient {
 
   void XRSocketClient::ConnectServer() {
     const char *https_aliases[] = {"wss", NULL};
-    m_soup_session = soup_session_new_with_options(
+
+    SoupSession *soup_session = soup_session_new_with_options(
         SOUP_SESSION_SSL_STRICT, TRUE,
         SOUP_SESSION_HTTPS_ALIASES, https_aliases, NULL);
-
     // Set up SoupLogger
-    m_logger = soup_logger_new(SOUP_LOGGER_LOG_BODY, -1);
-    soup_logger_set_printer(m_logger, log_callback, NULL, NULL);
-    soup_session_add_feature(m_soup_session, SOUP_SESSION_FEATURE(m_logger));
+    SoupLogger *logger = soup_logger_new(SOUP_LOGGER_LOG_BODY, -1);
+    soup_logger_set_printer(logger, log_callback, NULL, NULL);
+    soup_session_add_feature(soup_session, SOUP_SESSION_FEATURE(logger));
 
     gchar *server_url = g_strdup(m_server_ip.c_str());
-    m_soup_message = soup_message_new(SOUP_METHOD_GET, server_url);
+    SoupMessage *soup_message = soup_message_new(SOUP_METHOD_GET, server_url);
     g_free(server_url);
 
-    Log::Write(Log::Level::Info, Fmt("XR-Socket %s connecting Server %s with session:%p, msg:%p", m_name.c_str(), server_url, m_soup_session, m_soup_message));
+    Log::Write(Log::Level::Info, Fmt("XR-Socket %s connecting Server %s with session:%p, msg:%p", m_name.c_str(), server_url, soup_session, soup_message));
     // Once connected, we will register
-    soup_session_websocket_connect_async(m_soup_session, m_soup_message, NULL,
+    soup_session_websocket_connect_async(soup_session, soup_message, NULL,
                                          NULL, NULL,
                                          (GAsyncReadyCallback) ServerConnectedCallback,
                                          this);
-
+    std::lock_guard<std::mutex> auto_lock(m_resource_lock);
+    m_soup_session = soup_session;
+    m_logger = logger;
+    m_soup_message = soup_message;
   }
 
   gboolean XRSocketClient::ServerConnectedCallback(SoupSession *session,
@@ -728,23 +764,25 @@ namespace XRClient {
     GError *error = NULL;
 
     // 创建连接对像
-    m_connection = soup_session_websocket_connect_finish(session, res, &error);
+    SoupWebsocketConnection *connection = soup_session_websocket_connect_finish(session, res, &error);
     if (error) {
       Log::Write(Log::Level::Error, Fmt("XR-Socket %s fails to connected code:%d, resaon:%s", m_name.c_str(), error->code, error->message));
       Quit();
       g_error_free(error);
       return false;
     }
-    Log::Write(Log::Level::Info, Fmt("XR-Socket %s gets connection %p connected", m_name.c_str(), m_connection));
-    soup_websocket_connection_set_max_incoming_payload_size(m_connection,
+    Log::Write(Log::Level::Info, Fmt("XR-Socket %s gets connection %p connected", m_name.c_str(), connection));
+    soup_websocket_connection_set_max_incoming_payload_size(connection,
                                                             16 * 1024 * 1024);
     // 心跳时间
-    soup_websocket_connection_set_keepalive_interval(m_connection, 1);
+    soup_websocket_connection_set_keepalive_interval(connection, 1);
 
-    g_signal_connect (m_connection, "message",
+    g_signal_connect (connection, "message",
                       G_CALLBACK(ServerMessageCallback), this);
-    g_signal_connect (m_connection, "closed", G_CALLBACK(ServerClosedCallback),
+    g_signal_connect (connection, "closed", G_CALLBACK(ServerClosedCallback),
                       this);
+    std::lock_guard<std::mutex> auto_lock(m_resource_lock);
+    m_connection = connection;
     return true;
   }
 
@@ -758,7 +796,7 @@ namespace XRClient {
 
   void XRSocketClient::OnServerClosed(SoupWebsocketConnection *connection) {
     SoupWebsocketState state = soup_websocket_connection_get_state(connection);
-    Log::Write(Log::Level::Info, Fmt("XR-Socket %s gets connection %p closed", m_name.c_str(), m_connection));
+    Log::Write(Log::Level::Info, Fmt("XR-Socket %s gets connection %p:%p closed, state:%d", m_name.c_str(), m_connection, connection, state));
     // 如果连接已经被关闭，就尝试重新建立连接
     if (state == SOUP_WEBSOCKET_STATE_CLOSED) {
       Quit();
@@ -809,14 +847,21 @@ namespace XRClient {
     if (SOUP_WEBSOCKET_DATA_TEXT == type) {
 //      Log::Write(Log::Level::Verbose, Fmt("XR-Socket %s sends text with connection:%p", m_name.c_str(), m_connection));
 
-      soup_websocket_connection_send_text(m_connection, message->ToString().c_str());
+      std::lock_guard<std::mutex> auto_lock(m_resource_lock);
+      if (NULL != m_connection && SOUP_WEBSOCKET_STATE_OPEN == soup_websocket_connection_get_state(m_connection)) {
+        soup_websocket_connection_send_text(m_connection, message->ToString().c_str());
+      }
     } else if (SOUP_WEBSOCKET_DATA_BINARY == type) {
       std::unique_ptr<std::vector<unsigned char> > binary_data = message->ToBinary();
       if (!binary_data) {
         return;
       }
       Log::Write(Log::Level::Verbose, Fmt("XR-Socket %s sends binary with connection:%p", m_name.c_str(), m_connection));
-      soup_websocket_connection_send_binary(m_connection, binary_data->data(), binary_data->size());
+      std::lock_guard<std::mutex> auto_lock(m_resource_lock);
+      if (NULL != m_connection && SOUP_WEBSOCKET_STATE_OPEN == soup_websocket_connection_get_state(m_connection)) {
+        soup_websocket_connection_send_binary(m_connection, binary_data->data(),
+                                              binary_data->size());
+      }
     }
   }
 }
@@ -832,7 +877,7 @@ public:
 
   void OnMessage(SoupWebsocketConnection *conn, SoupWebsocketDataType type,
                  gchar *data, gsize size) override {
-    Log::Write(Log::Level::Verbose, Fmt("XR-Socket Video gets message data, type:%d, count:%d", type, size));
+//    Log::Write(Log::Level::Verbose, Fmt("XR-Socket Video gets message data, type:%d, count:%d", type, size));
     switch (type) {
       case SOUP_WEBSOCKET_DATA_BINARY:
         break;
@@ -854,7 +899,7 @@ public:
 
   void OnMessage(SoupWebsocketConnection *conn, SoupWebsocketDataType type,
                  gchar *data, gsize size) override {
-    Log::Write(Log::Level::Verbose, Fmt("XR-Socket Audio gets message data, type:%d, count:%d", type, size));
+//    Log::Write(Log::Level::Verbose, Fmt("XR-Socket Audio gets message data, type:%d, count:%d", type, size));
     switch (type) {
       case SOUP_WEBSOCKET_DATA_BINARY:
         break;
@@ -913,6 +958,7 @@ void stop_audio_client() {
 bool g_sending_loop = false;
 
 void start_sender_loop() {
+  stop_sender_loop();
   g_sending_loop = true;
   g_iteration_thread = std::make_shared<std::thread>([]() {
     while (g_sending_loop) {
