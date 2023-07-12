@@ -635,6 +635,9 @@ namespace XRClient {
 
     {
       std::lock_guard<std::mutex> auto_lock(m_resource_lock);
+      m_context = NULL;
+      m_receive_loop = NULL;
+
       //TODO: 还未建立connection就Quit, 如何清理已经异步建立的connection？
       if (m_connection) {
 //        if (SOUP_WEBSOCKET_STATE_OPEN == soup_websocket_connection_get_state(m_connection))
