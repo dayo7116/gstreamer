@@ -253,6 +253,7 @@ bool CustomSoupServer::Init() {
   // Set the port to listen on
   soup_server_listen_all(m_server, m_port, SOUP_SERVER_LISTEN_IPV4_ONLY, NULL);
 
+  printf("XR-Server %s-%d starts: \n", m_name.c_str(), m_connection_count);
   return true;
 }
 void CustomSoupServer::Run() {

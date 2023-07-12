@@ -903,10 +903,13 @@ namespace XRClient {
     SoupWebsocketDataType type = message->GetType();
     if (SOUP_WEBSOCKET_DATA_TEXT == type) {
 //      Log::Write(Log::Level::Verbose, Fmt("XR-Socket %s sends text with connection:%p", m_name.c_str(), m_connection));
-
-      std::lock_guard<std::mutex> auto_lock(m_resource_lock);
-      if (NULL != m_connection && SOUP_WEBSOCKET_STATE_OPEN == soup_websocket_connection_get_state(m_connection)) {
-        soup_websocket_connection_send_text(m_connection, message->ToString().c_str());
+      if (m_resource_lock.try_lock()) {
+        if (NULL != m_connection && SOUP_WEBSOCKET_STATE_OPEN == soup_websocket_connection_get_state(m_connection)) {
+          soup_websocket_connection_send_text(m_connection, message->ToString().c_str());
+        }
+        m_resource_lock.unlock();
+      } else {
+        int a = 0;
       }
     } else if (SOUP_WEBSOCKET_DATA_BINARY == type) {
       std::unique_ptr<std::vector<unsigned char> > binary_data = message->ToBinary();
