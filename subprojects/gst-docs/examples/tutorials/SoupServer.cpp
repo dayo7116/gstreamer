@@ -175,7 +175,7 @@ protected:
       g_alive_connection_count--;
       alive_count = g_alive_connection_count;
     }
-    printf("XR-Server %s-%d connection:%p closed at %s, alive connection:%d \n", m_name.c_str(), m_connection_count--, connection, GetTime().c_str(),
+    printf("XR-Server %s-%d connection:%p closed at %s, alive connection:%d \n", m_name.c_str(), m_connection_count, connection, GetTime().c_str(),
            alive_count);
 
     {
@@ -203,7 +203,7 @@ protected:
       return;
     }
     if (m_sender) {
-      m_sender->OnSendingData(m_connection);
+      //m_sender->OnSendingData(m_connection);
     }
   }
   
@@ -323,10 +323,10 @@ void start_soup_server() {
     g_video_server.Start();
     g_video_server.SetSender(g_video_sender);
    });
-  std::thread audio_thread([]() {
+  /*std::thread audio_thread([]() {
     g_audio_server.Start();
     g_audio_server.SetSender(g_audio_sender);
-   });
+   });*/
   while (true)
   {
     g_usleep(1000);

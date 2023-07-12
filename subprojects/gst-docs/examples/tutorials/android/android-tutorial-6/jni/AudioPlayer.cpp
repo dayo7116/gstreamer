@@ -511,6 +511,8 @@ namespace XRClient {
       Quit();
     }
 
+    virtual int GetConnectionID() = 0;
+
   public:
     //连接到server并接收消息
     void Start(const char *server_ip,
@@ -813,6 +815,7 @@ namespace XRClient {
       g_object_unref(m_connection);
     }
     m_connection = connection;
+    m_name = m_name + "-" + std::to_string(GetConnectionID());
     return true;
   }
 
@@ -973,11 +976,21 @@ public:
     m_name += std::to_string(s_instance_id);
   }
 
+  int GetConnectionID() override {
+    std::lock_guard<std::mutex> auto_lock(s_connection_lock);
+    s_connection_count++;
+    return s_connection_count;
+  }
   static int s_instance_id;
   static std::mutex s_lock;
+
+  static int s_connection_count;
+  static std::mutex s_connection_lock;
 };
 int VideoSocketClient::s_instance_id = 0;
 std::mutex VideoSocketClient::s_lock;
+int VideoSocketClient::s_connection_count = 0;
+std::mutex VideoSocketClient::s_connection_lock;
 
 void start_video_client(const char *server_ip) {
 
@@ -1011,11 +1024,21 @@ public:
     m_name += std::to_string(s_instance_id);
   }
 
+  int GetConnectionID() override {
+    std::lock_guard<std::mutex> auto_lock(s_connection_lock);
+    s_connection_count++;
+    return s_connection_count;
+  }
   static int s_instance_id;
   static std::mutex s_lock;
+
+  static int s_connection_count;
+  static std::mutex s_connection_lock;
 };
 int AudioSocketClient::s_instance_id = 0;
 std::mutex AudioSocketClient::s_lock;
+int AudioSocketClient::s_connection_count = 0;
+std::mutex AudioSocketClient::s_connection_lock;
 
 void start_audio_client(const char *server_ip) {
 
