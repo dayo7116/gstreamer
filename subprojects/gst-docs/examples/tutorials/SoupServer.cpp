@@ -113,8 +113,8 @@ protected:
         std::make_shared<std::thread>([this]() {
 
           while (m_sending_loop) {
-            g_main_context_invoke(m_context, (GSourceFunc)send_frame_data_async,
-              this);
+            g_main_context_invoke(m_context, (GSourceFunc)send_frame_data_async, this);
+            //OnSendingData();
             g_usleep(500);
           }
         });

@@ -130,6 +130,20 @@ void stop_client() {
     stop_sender_loop();
 }
 
+
+static void *
+app_function (void *userdata)
+{
+  while(TRUE) {
+    start_client();
+
+    g_usleep(3000);
+
+    stop_client();
+  }
+  return NULL;
+}
+
 /*
  * Java Bindings
  */
@@ -148,11 +162,11 @@ gst_native_init (JNIEnv * env, jobject thiz)
   GST_DEBUG ("Created CustomData at %p", data);
   data->app = (*env)->NewGlobalRef (env, thiz);
   GST_DEBUG ("Created GlobalRef for app object at %p", data->app);
-//  pthread_create (&gst_app_thread, NULL, &app_function, data);
+  pthread_create (&gst_app_thread, NULL, &app_function, data);
     data->sourceid = 0;
 
 //    start_play();
-    start_client();
+//    start_client();
 }
 
 /* Quit the main loop, remove the native thread and free resources */
