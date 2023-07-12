@@ -467,6 +467,23 @@ static void log_callback(SoupLogger *logger,
 
 }
 
+std::string GetTime() {
+  // 获取当前时间点
+  auto now = std::chrono::system_clock::now();
+  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+
+  // 将时间戳转换为字符串
+  std::time_t timestamp = std::chrono::system_clock::to_time_t(now);
+  std::tm* timeinfo = std::localtime(&timestamp);
+  char buffer[80];
+  std::strftime(buffer, sizeof(buffer), "%Y%m%d_%H%M%S", timeinfo);
+
+  // 创建文件名
+  std::ostringstream timeStr;
+  timeStr << buffer << "_" << ms;
+  return timeStr.str();
+}
+
 namespace XRClient {
   class SocketMessageListener {
   public:
@@ -489,7 +506,8 @@ namespace XRClient {
     XRSocketClient(const char *name)
         : m_name(name) {
       std::lock_guard<std::mutex> auto_lock(s_lock);
-      m_name += std::to_string(s_instance_id++);
+      s_instance_id++;
+      m_name += std::to_string(s_instance_id);
     }
 
     virtual ~XRSocketClient() {
@@ -562,6 +580,7 @@ namespace XRClient {
     GMainContext *m_context = NULL;
     GMainLoop *m_receive_loop = NULL;
     SoupSession *m_soup_session = NULL;
+    GCancellable *m_cancellable = NULL;
     SoupMessage *m_soup_message = NULL;
     SoupLogger *m_logger = NULL;
 
@@ -627,6 +646,7 @@ namespace XRClient {
     }
 
     //m_receive_loop 还没赋值就Quit,会导致线程退不出去
+    //还没执行g_main_loop_run, Quit里执行了g_main_loop_quit，也导致线程退不出去
     if (run_loop) {
       g_main_loop_run(loop);
     } else {
@@ -640,13 +660,19 @@ namespace XRClient {
 
       //TODO: 还未建立connection就Quit, 如何清理已经异步建立的connection？
       if (m_connection) {
-//        if (SOUP_WEBSOCKET_STATE_OPEN == soup_websocket_connection_get_state(m_connection))
+        if (SOUP_WEBSOCKET_STATE_OPEN == soup_websocket_connection_get_state(m_connection))
         {
-          Log::Write(Log::Level::Info, Fmt("XR-Socket %s close connection %p", m_name.c_str(), m_connection));
+          Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s close %p at %s", m_name.c_str(), m_connection, GetTime().c_str()));
           soup_websocket_connection_close(m_connection, 1000, "");
         }
         g_object_unref(m_connection);
         m_connection = NULL;
+      } else {
+        int a = 0;
+      }
+      if (m_cancellable) {
+        g_object_unref(m_cancellable);
+        m_cancellable = NULL;
       }
       if (m_soup_session) {
         soup_session_abort(m_soup_session);
@@ -681,9 +707,15 @@ namespace XRClient {
       m_receive_loop_running = false;
       m_context = NULL;
 
+      if (!m_connection && m_cancellable) {
+        g_cancellable_cancel(m_cancellable);
+      }
+
       if (m_receive_loop) {
+        while(!g_main_loop_is_running(m_receive_loop)) {
+          Log::Write(Log::Level::Info, Fmt("XR-Socket %s main loop not running, waiting...", m_name.c_str()));
+        }
         g_main_loop_quit(m_receive_loop);
-        m_receive_loop = NULL;
       }
       if (m_receive_thread) {
         receive_thread = m_receive_thread;
@@ -742,8 +774,9 @@ namespace XRClient {
 
     Log::Write(Log::Level::Info, Fmt("XR-Socket %s connecting Server %s with session:%p, msg:%p", m_name.c_str(), server_url, soup_session, soup_message));
     // Once connected, we will register
+    m_cancellable = g_cancellable_new();
     soup_session_websocket_connect_async(soup_session, soup_message, NULL,
-                                         NULL, NULL,
+                                         NULL, m_cancellable,
                                          (GAsyncReadyCallback) ServerConnectedCallback,
                                          this);
     m_soup_session = soup_session;
@@ -776,7 +809,7 @@ namespace XRClient {
       }
       return false;
     }
-    Log::Write(Log::Level::Info, Fmt("XR-Socket %s gets connection %p connected", m_name.c_str(), connection));
+    Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s gets %p connected at %s", m_name.c_str(), connection, GetTime().c_str()));
     soup_websocket_connection_set_max_incoming_payload_size(connection,
                                                             16 * 1024 * 1024);
     // 心跳时间
@@ -787,11 +820,17 @@ namespace XRClient {
     g_signal_connect (connection, "closed", G_CALLBACK(ServerClosedCallback),
                       this);
     std::lock_guard<std::mutex> auto_lock(m_resource_lock);
+    if (m_cancellable) {
+      g_object_unref(m_cancellable);
+      m_cancellable = NULL;
+    }
     if (!m_receive_loop_running) {
+      Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s close %p at %s", m_name.c_str(), connection, GetTime().c_str()));
       soup_websocket_connection_close(connection, 1000, "");
       g_object_unref(connection);
     } else {
       if (m_connection) {
+        Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s close %p at %s", m_name.c_str(), m_connection, GetTime().c_str()));
         soup_websocket_connection_close(m_connection, 1000, "");
         g_object_unref(m_connection);
       }
@@ -810,8 +849,7 @@ namespace XRClient {
 
   void XRSocketClient::OnServerClosed(SoupWebsocketConnection *connection) {
     SoupWebsocketState state = soup_websocket_connection_get_state(connection);
-    Log::Write(Log::Level::Info, Fmt("XR-Socket %s gets connection %p:%p closed, state:%d", m_name.c_str(), m_connection, connection, state));
-
+    Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s gets %p:%p closed, state:%d, at %d", m_name.c_str(), m_connection, connection, state, GetTime().c_str()));
     std::lock_guard<std::mutex> auto_lock(m_resource_lock);
     if (m_receive_loop) {
       g_main_loop_quit(m_receive_loop);

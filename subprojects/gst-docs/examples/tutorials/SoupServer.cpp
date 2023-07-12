@@ -10,6 +10,8 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <iostream>
+#include <sstream>
 
 #define VIDEO_PORT 8088
 #define AUDIO_PORT 8089
@@ -38,12 +40,37 @@ private:
   std::thread* m_pThread;
 };
 
-static int g_close_count = 0;
-
 class DataSender {
 public:
   virtual void OnSendingData(SoupWebsocketConnection* connection) = 0;
 };
+
+
+std::string GetTime() {
+  // 获取当前时间点
+  auto now = std::chrono::system_clock::now();
+  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now.time_since_epoch())
+                .count();
+
+  // 将时间戳转换为字符串
+  std::time_t timestamp = std::chrono::system_clock::to_time_t(now);
+  std::tm* timeinfo = std::localtime(&timestamp);
+  char buffer[80];
+  std::strftime(buffer, sizeof(buffer), "%Y%m%d_%H%M%S", timeinfo);
+
+  // 创建文件名
+  std::ostringstream timeStr;
+  timeStr << buffer << "_" << ms;
+  return timeStr.str();
+}
+
+
+std::mutex g_lock;
+int g_connection_count = 0;
+
+std::mutex g_lock_alive;
+int g_alive_connection_count = 0;
 
 class CustomSoupServer : public CThread {
 public:
@@ -74,6 +101,10 @@ public:
   }
 
   static void soup_websocket_handler(SoupServer* server, SoupWebsocketConnection* connection, const char* path, SoupClientContext* client, gpointer user_data) {
+    {
+      std::lock_guard<std::mutex> auto_lock(g_lock_alive);
+      g_alive_connection_count++;
+    }
     CustomSoupServer* custom_server = (CustomSoupServer*)user_data;
     if (custom_server) {
       custom_server->OnClientConnected(server, connection, path, client);
@@ -92,8 +123,14 @@ public:
 protected:
   void OnClientConnected(SoupServer* server, SoupWebsocketConnection* connection,
     const char* path, SoupClientContext* client) {
+      {
+        std::lock_guard<std::mutex> auto_lock(g_lock);
+        g_connection_count++;
+        m_connection_count = g_connection_count;
+      }
 
-    printf("XR-Server server:%s get connection:%p, path:%s, client:%p \n", m_name.c_str(), connection, path, client);
+    printf("XR-Server server:%s-%d get connection:%p at %s \n",
+           m_name.c_str(), m_connection_count, connection, GetTime().c_str());
 
     g_signal_connect(G_OBJECT(connection), "closed",
       G_CALLBACK(soup_websocket_closed_cb), this);
@@ -142,8 +179,14 @@ protected:
     }
   }
   void OnClientClosed(SoupWebsocketConnection* connection) {
-    printf("XR-Server %s connection:%p closed \n", m_name.c_str(), connection);
-    g_close_count++;
+    int alive_count = 0;
+    {
+      std::lock_guard<std::mutex> auto_lock(g_lock_alive);
+      g_alive_connection_count--;
+      alive_count = g_alive_connection_count;
+    }
+    printf("XR-Server %s-%d connection:%p closed at %s, alive connection:%d \n", m_name.c_str(), m_connection_count, connection, GetTime().c_str(),
+           alive_count);
 
     {
       std::lock_guard<std::mutex> auto_lock(m_connection_lock);
@@ -190,6 +233,8 @@ protected:
   std::shared_ptr<std::thread> m_send_data_thread;
 
   std::shared_ptr<DataSender> m_sender;
+
+  int m_connection_count = 0;
 };
 
 bool CustomSoupServer::Init() {
