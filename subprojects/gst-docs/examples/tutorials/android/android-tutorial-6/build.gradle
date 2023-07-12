@@ -20,6 +20,8 @@ android {
                 else
                     gstRoot = System.env.GSTREAMER_ROOT_ANDROID
 
+                println("gstreamer root:" + gstRoot);
+
                 if (gstRoot == null)
                     throw new GradleException('GSTREAMER_ROOT_ANDROID must be set, or "gstAndroidRoot" must be defined in your gradle.properties in the top level directory of the unpacked universal GStreamer Android binaries')
 

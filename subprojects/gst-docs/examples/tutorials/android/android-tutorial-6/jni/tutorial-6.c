@@ -137,7 +137,7 @@ app_function (void *userdata)
   while(TRUE) {
     start_client();
 
-    g_usleep(3000);
+    g_usleep(1000000);//1秒
 
     stop_client();
   }
@@ -165,7 +165,6 @@ gst_native_init (JNIEnv * env, jobject thiz)
   pthread_create (&gst_app_thread, NULL, &app_function, data);
     data->sourceid = 0;
 
-//    start_play();
 //    start_client();
 }
 

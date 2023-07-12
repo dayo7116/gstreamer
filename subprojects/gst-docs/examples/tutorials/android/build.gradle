@@ -23,3 +23,8 @@ allprojects {
 task clean(type: Delete) {
     delete rootProject.buildDir
 }
+ext {
+//  gstAndroidRoot="C:\\Work\\Tools\\GStreamer\\gstreamer-1.0-android-universal-1.22.1"
+//  gstAndroidRoot="D:\\Tools\\gstreamer-2023-07-06\\gstreamer\\gstreamer-1.0-android-universal-1.23.0.1"
+  gstAndroidRoot="D:\\Tools\\gstreamer-2023-0711-1.22-hotfix\\gstreamer-1.0-android-universal-1.22.4.1"
+}

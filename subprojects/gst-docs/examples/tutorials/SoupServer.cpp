@@ -144,9 +144,6 @@ protected:
   void OnClientClosed(SoupWebsocketConnection* connection) {
     printf("XR-Server %s connection:%p closed \n", m_name.c_str(), connection);
     g_close_count++;
-    if (g_close_count % 2 == 0) {
-      printf("\n\n\n\n");
-    }
 
     {
       std::lock_guard<std::mutex> auto_lock(m_connection_lock);

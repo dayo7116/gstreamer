@@ -629,41 +629,12 @@ namespace XRClient {
     //m_receive_loop 还没赋值就Quit,会导致线程退不出去
     if (run_loop) {
       g_main_loop_run(loop);
+    } else {
+      int a = 0;
     }
-
-    g_main_context_pop_thread_default(context);
-
-    g_main_loop_unref(loop);
-    g_main_context_unref(context);
-
-    Log::Write(Log::Level::Info, Fmt("XR-Socket %s main loop stops", m_name.c_str()));
-  }
-
-  void XRSocketClient::Quit() {
-    Log::Write(Log::Level::Info, Fmt("XR-Socket %s starts to quit, quitting loop:%p", m_name.c_str(), m_receive_loop));
-
-    GMainLoop *loop = NULL;
-    SoupWebsocketConnection *connection = NULL;
-    SoupSession *soup_session = NULL;
-    SoupMessage *soup_message = NULL;
-    SoupLogger *logger = NULL;
-
-    std::shared_ptr<std::thread> receive_thread, sending_thread;
 
     {
       std::lock_guard<std::mutex> auto_lock(m_resource_lock);
-      m_receive_loop_running = false;
-      m_context = NULL;
-
-      if (m_receive_loop) {
-        g_main_loop_quit(m_receive_loop);
-        m_receive_loop = NULL;
-      }
-      if (m_receive_thread) {
-        receive_thread = m_receive_thread;
-        m_receive_thread = nullptr;
-      }
-
       //TODO: 还未建立connection就Quit, 如何清理已经异步建立的connection？
       if (m_connection) {
 //        if (SOUP_WEBSOCKET_STATE_OPEN == soup_websocket_connection_get_state(m_connection))
@@ -687,6 +658,34 @@ namespace XRClient {
         g_object_unref(m_logger);
         m_logger = NULL;
       }
+    }
+
+    g_main_context_pop_thread_default(context);
+
+    g_main_loop_unref(loop);
+    g_main_context_unref(context);
+
+    Log::Write(Log::Level::Info, Fmt("XR-Socket %s main loop stops", m_name.c_str()));
+  }
+
+  void XRSocketClient::Quit() {
+    Log::Write(Log::Level::Info, Fmt("XR-Socket %s starts to quit, quitting loop:%p", m_name.c_str(), m_receive_loop));
+
+    std::shared_ptr<std::thread> receive_thread, sending_thread;
+
+    {
+      std::lock_guard<std::mutex> auto_lock(m_resource_lock);
+      m_receive_loop_running = false;
+      m_context = NULL;
+
+      if (m_receive_loop) {
+        g_main_loop_quit(m_receive_loop);
+        m_receive_loop = NULL;
+      }
+      if (m_receive_thread) {
+        receive_thread = m_receive_thread;
+        m_receive_thread = nullptr;
+      }
 
       m_sending_loop_running = false;
       m_msg_cv.notify_one();
@@ -697,9 +696,11 @@ namespace XRClient {
     }
     if (receive_thread) {
       receive_thread->join();
+      receive_thread = nullptr;
     }
     if (sending_thread) {
       sending_thread->join();
+      sending_thread = nullptr;
     }
   }
 
@@ -766,6 +767,10 @@ namespace XRClient {
     if (error) {
       Log::Write(Log::Level::Error, Fmt("XR-Socket %s fails to connected code:%d, resaon:%s", m_name.c_str(), error->code, error->message));
       g_error_free(error);
+      std::lock_guard<std::mutex> auto_lock(m_resource_lock);
+      if (m_receive_loop) {
+        g_main_loop_quit(m_receive_loop);
+      }
       return false;
     }
     Log::Write(Log::Level::Info, Fmt("XR-Socket %s gets connection %p connected", m_name.c_str(), connection));
@@ -805,9 +810,10 @@ namespace XRClient {
     Log::Write(Log::Level::Info, Fmt("XR-Socket %s gets connection %p:%p closed, state:%d", m_name.c_str(), m_connection, connection, state));
 
     std::lock_guard<std::mutex> auto_lock(m_resource_lock);
-    soup_websocket_connection_close(m_connection, 1000, "");
-    g_object_unref(m_connection);
-    m_connection = NULL;
+    if (m_receive_loop) {
+      g_main_loop_quit(m_receive_loop);
+    }
+
     // 如果连接已经被关闭，就尝试重新建立连接
     if (state == SOUP_WEBSOCKET_STATE_CLOSED) {
       //TODO: @dayong 添加重连策略
@@ -962,7 +968,6 @@ void start_video_client(const char *server_ip) {
 void stop_video_client() {
   std::lock_guard<std::mutex> auto_lock(g_lock);
   if (g_video_client) {
-    g_video_client->Quit();
     g_video_client = nullptr;
   }
 }
@@ -985,7 +990,6 @@ void start_audio_client(const char *server_ip) {
 void stop_audio_client() {
   std::lock_guard<std::mutex> auto_lock(g_lock);
   if (g_audio_client) {
-    g_audio_client->Quit();
     g_audio_client = nullptr;
   }
 }
