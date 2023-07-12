@@ -162,10 +162,10 @@ gst_native_init (JNIEnv * env, jobject thiz)
   GST_DEBUG ("Created CustomData at %p", data);
   data->app = (*env)->NewGlobalRef (env, thiz);
   GST_DEBUG ("Created GlobalRef for app object at %p", data->app);
-  pthread_create (&gst_app_thread, NULL, &app_function, data);
-    data->sourceid = 0;
+  data->sourceid = 0;
 
-//    start_client();
+    pthread_create (&gst_app_thread, NULL, &app_function, data);
+//      start_client();
 }
 
 /* Quit the main loop, remove the native thread and free resources */

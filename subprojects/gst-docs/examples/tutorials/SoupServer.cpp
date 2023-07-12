@@ -65,10 +65,6 @@ std::string GetTime() {
   return timeStr.str();
 }
 
-
-std::mutex g_lock;
-int g_connection_count = 0;
-
 std::mutex g_lock_alive;
 int g_alive_connection_count = 0;
 
@@ -123,14 +119,8 @@ public:
 protected:
   void OnClientConnected(SoupServer* server, SoupWebsocketConnection* connection,
     const char* path, SoupClientContext* client) {
-      {
-        std::lock_guard<std::mutex> auto_lock(g_lock);
-        g_connection_count++;
-        m_connection_count = g_connection_count;
-      }
-
     printf("XR-Server server:%s-%d get connection:%p at %s \n",
-           m_name.c_str(), m_connection_count, connection, GetTime().c_str());
+           m_name.c_str(), ++m_connection_count, connection, GetTime().c_str());
 
     g_signal_connect(G_OBJECT(connection), "closed",
       G_CALLBACK(soup_websocket_closed_cb), this);
@@ -185,7 +175,7 @@ protected:
       g_alive_connection_count--;
       alive_count = g_alive_connection_count;
     }
-    printf("XR-Server %s-%d connection:%p closed at %s, alive connection:%d \n", m_name.c_str(), m_connection_count, connection, GetTime().c_str(),
+    printf("XR-Server %s-%d connection:%p closed at %s, alive connection:%d \n", m_name.c_str(), m_connection_count--, connection, GetTime().c_str(),
            alive_count);
 
     {
