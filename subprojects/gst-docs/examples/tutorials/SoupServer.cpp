@@ -469,10 +469,10 @@ void start_soup_server() {
     g_video_server.Start();
     g_video_server.SetSender(g_video_sender);
    });
-  /*std::thread audio_thread([]() {
+  std::thread audio_thread([]() {
     g_audio_server.Start();
     g_audio_server.SetSender(g_audio_sender);
-   });*/
+   });
   while (true)
   {
     g_usleep(1000);
