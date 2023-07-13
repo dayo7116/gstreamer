@@ -9,7 +9,7 @@ include $(PREBUILT_SHARED_LIBRARY)
 include $(CLEAR_VARS)
 
 LOCAL_MODULE    := tutorial-6
-LOCAL_SRC_FILES := tutorial-6.c dummy.cpp AudioPlayer.cpp
+LOCAL_SRC_FILES := tutorial-6.c dummy.cpp AudioPlayer.cpp MTXR_SocketClient.cpp
 LOCAL_SHARED_LIBRARIES := gstreamer_android Oboe
 LOCAL_LDLIBS := -llog -landroid
 include $(BUILD_SHARED_LIBRARY)
