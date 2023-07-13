@@ -144,19 +144,18 @@ void XRSocketClient::RunLoop() {
   m_receive_loop = NULL;
 
   //TODO: 还未建立connection就Quit, 如何清理已经异步建立的connection？
+  Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s quits loop %p, connection:%p", m_name.c_str(), loop, m_connection));
   if (m_connection) {
     SoupWebsocketState state = soup_websocket_connection_get_state(m_connection);
     if (SOUP_WEBSOCKET_STATE_OPEN == state)
     {
-      Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s close %p", m_name.c_str(), m_connection));
-      soup_websocket_connection_close(m_connection, 1000, "");
+      Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s close connection:%p when loop quits", m_name.c_str(), m_connection));
+      soup_websocket_connection_close(m_connection, SOUP_WEBSOCKET_CLOSE_NORMAL, "loop quits");
     } else {
-      int a = 0;
+      Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s connection %p state:%d", m_name.c_str(), m_connection, state));
     }
     g_object_unref(m_connection);
     m_connection = NULL;
-  } else {
-    int a = 0;
   }
   if (m_cancellable) {
     g_object_unref(m_cancellable);
@@ -181,8 +180,14 @@ void XRSocketClient::RunLoop() {
   g_main_loop_unref(loop);
   g_main_context_unref(context);
 
-  Log::Write(Log::Level::Info, Fmt("XR-Socket %s main loop stops", m_name.c_str()));
   m_receive_loop_running = false;
+
+  m_reconnect_cv.notify_one();
+  if (m_reconnect_thread) {
+    m_reconnect_thread->join();
+    m_reconnect_thread = nullptr;
+  }
+  Log::Write(Log::Level::Info, Fmt("XR-Socket %s main loop stops", m_name.c_str()));
 }
 
 void XRSocketClient::Quit() {
@@ -255,13 +260,26 @@ void XRSocketClient::ConnectServer() {
 
   Log::Write(Log::Level::Info, Fmt("XR-Socket %s connecting Server %s with session:%p, msg:%p", m_name.c_str(), server_url, soup_session, soup_message));
   // Once connected, we will register
+  if (m_cancellable) {
+    g_object_unref(m_cancellable);
+  }
   m_cancellable = g_cancellable_new();
   soup_session_websocket_connect_async(soup_session, soup_message, NULL,
                                        NULL, m_cancellable,
                                        (GAsyncReadyCallback) ServerConnectedCallback,
                                        this);
+  if (m_soup_session) {
+    soup_session_abort(m_soup_session);
+    g_object_unref(m_soup_session);
+  }
   m_soup_session = soup_session;
+  if (m_logger) {
+    g_object_unref(m_logger);
+  }
   m_logger = logger;
+  if (m_soup_message) {
+    g_object_unref(m_soup_message);
+  }
   m_soup_message = soup_message;
 }
 
@@ -282,16 +300,15 @@ XRSocketClient::OnServerConnected(SoupSession *session, GAsyncResult *res) {
   // 创建连接对像
   SoupWebsocketConnection *connection = soup_session_websocket_connect_finish(session, res, &error);
   if (error) {
-    Log::Write(Log::Level::Error, Fmt("XR-Socket %s fails to connected code:%d, resaon:%s", m_name.c_str(), error->code, error->message));
+    Log::Write(Log::Level::Error, Fmt("XR-Socket %s fails to connect code:%d, reason:%s",
+                                      m_name.c_str(), error->code, error->message ? error->message : "none"));
     g_error_free(error);
-    if (m_receive_loop) {
-      g_main_loop_quit(m_receive_loop);
-    }
+
+    ReConnect();
     return false;
   }
   Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s gets %p connected", m_name.c_str(), connection));
-  soup_websocket_connection_set_max_incoming_payload_size(connection,
-                                                          16 * 1024 * 1024);
+  soup_websocket_connection_set_max_incoming_payload_size(connection, 16 * 1024 * 1024);
   // 心跳时间
   soup_websocket_connection_set_keepalive_interval(connection, 1);
 
@@ -307,11 +324,12 @@ XRSocketClient::OnServerConnected(SoupSession *session, GAsyncResult *res) {
     m_cancellable = NULL;
   }
   if (m_connection) {
-    Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s close %p", m_name.c_str(), m_connection));
-    soup_websocket_connection_close(m_connection, 1000, "");
+    Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s close previous connection:%p as new comes", m_name.c_str(), m_connection));
+    soup_websocket_connection_close(m_connection, SOUP_WEBSOCKET_CLOSE_NORMAL, "close previous");
     g_object_unref(m_connection);
   }
   m_connection = connection;
+  g_object_ref(m_connection);
   m_name = m_name + "-" + std::to_string(GetConnectionID());
   return true;
 }
@@ -330,14 +348,16 @@ void XRSocketClient::OnServerClosed(SoupWebsocketConnection *connection) {
   gushort close_code = soup_websocket_connection_get_close_code(connection);
   const char *close_reason = soup_websocket_connection_get_close_data(connection);
   SoupWebsocketCloseCode closeCode = static_cast<SoupWebsocketCloseCode>(close_code);
-  Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s gets %p closed, state:%d, code:%d:%d, reason:%s", m_name.c_str(), m_connection, state, close_code, closeCode, close_reason ? close_reason : ""));
-  if (m_receive_loop) {
-    g_main_loop_quit(m_receive_loop);
+  Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s gets %p closed, state:%d, code:%d:%d, reason:%s",
+                                   m_name.c_str(), m_connection, state, close_code, closeCode, close_reason ? close_reason : ""));
+  if (m_connection) {
+    Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s close connection:%p when receiving closed signal", m_name.c_str(), m_connection));
+    soup_websocket_connection_close(m_connection, SOUP_WEBSOCKET_CLOSE_NORMAL, "receiving closed signal");
+    g_object_unref(m_connection);
+    m_connection = NULL;
   }
-
-  // 如果连接已经被关闭，就尝试重新建立连接
   if (state == SOUP_WEBSOCKET_STATE_CLOSED) {
-    //TODO: @dayong 添加重连策略
+    ReConnect();
   }
 }
 
@@ -411,4 +431,36 @@ void XRSocketClient::OnSendingData() {
                                             binary_data->size());
     }
   }
+}
+
+void XRSocketClient::ReConnect() {
+  m_reconnect_cv.notify_one();
+  if (m_reconnect_thread) {
+    return;
+  }
+  Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s starts reconnecting", m_name.c_str()));
+  m_reconnect_thread = std::make_shared<std::thread>([this]() {
+    while(m_receive_loop_running && m_reconnect_count < MAX_RECONNECT_TIME) {
+      while(!m_connection && m_receive_loop_running && m_reconnect_count++ < MAX_RECONNECT_TIME) {
+        {
+          std::lock_guard<std::mutex> auto_lock(m_resource_lock);
+          if (m_context) {
+            g_main_context_invoke(m_context, (GSourceFunc) AsyncConnectFn, this);
+          }
+        }
+
+        //2s尝试重连一次
+        std::unique_lock<std::mutex> lock(m_reconnect_lock);
+        m_reconnect_cv.wait_for(lock, std::chrono::milliseconds(2000), [this] { return !m_receive_loop_running;});
+      }
+
+      if (!m_receive_loop_running) {
+        Log::Write(Log::Level::Info, Fmt("XR-Socket %s reconnect thread stops", m_name.c_str()));
+        return;
+      }
+      std::unique_lock<std::mutex> lock(m_reconnect_lock);
+      m_reconnect_cv.wait(lock);
+    }
+    Log::Write(Log::Level::Info, Fmt("XR-Socket %s reconnect thread stops", m_name.c_str()));
+  });
 }

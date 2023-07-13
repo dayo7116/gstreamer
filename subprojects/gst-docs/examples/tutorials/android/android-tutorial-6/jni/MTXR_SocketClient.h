@@ -85,6 +85,8 @@ protected:
   static gboolean SendDataAsyncFn(void *user_data);
   void OnSendingData();
 
+  void ReConnect();
+
 protected:
   std::string m_name;
   std::string m_server_ip;
@@ -97,6 +99,13 @@ protected:
   std::shared_ptr<ClientMessageObject> m_current_message;
   std::mutex m_msg_lock;
   std::condition_variable m_msg_cv;
+
+#define MAX_RECONNECT_TIME 10
+  std::shared_ptr<std::thread> m_reconnect_thread;
+  std::mutex m_reconnect_lock;
+  std::condition_variable m_reconnect_cv;
+  int m_reconnect_count = 0;
+
 
   std::mutex m_resource_lock;
 
