@@ -12,6 +12,7 @@
 #include <vector>
 #include <iostream>
 #include <sstream>
+#include <map>
 
 #define VIDEO_PORT 8088
 #define AUDIO_PORT 8089
@@ -67,7 +68,6 @@ std::string GetTime() {
 
 std::mutex g_lock_alive;
 int g_alive_connection_count = 0;
-
 class CustomSoupServer : public CThread {
 public:
   CustomSoupServer(int port, const char* server_name, const char* path)
@@ -188,6 +188,11 @@ protected:
   }
   void OnClientConnected(SoupServer* server, SoupWebsocketConnection* connection,
     const char* path, SoupClientContext* client) {
+    auto now = std::chrono::system_clock::now();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                  now.time_since_epoch())
+                  .count();
+
     printf("XR-Server server:%s-%d get connection:%p, client:%p at %s \n",
            m_name.c_str(), ++ m_connection_count, connection,
            client, GetTime().c_str());
@@ -197,8 +202,15 @@ protected:
 
     {
       std::lock_guard<std::mutex> auto_lock(m_connection_lock);
-      m_connection = connection;
-      g_object_ref(G_OBJECT(m_connection));
+      auto finder = m_alive_connections.find(connection);
+      if (finder == m_alive_connections.end()) {
+        g_object_ref(G_OBJECT(connection));
+        m_alive_connections[connection].borntime = ms;
+        m_alive_connections[connection].connection_index = m_connection_count;
+      } else {
+        // finder->second.borntime = ms;
+        int a = 0;
+      }
     }
 
     g_signal_connect(G_OBJECT(connection), "message",
@@ -216,7 +228,6 @@ protected:
 
           while (m_sending_loop) {
             g_main_context_invoke(m_context, (GSourceFunc)send_frame_data_async, this);
-            //OnSendingData();
             g_usleep(500);
           }
         });
@@ -246,8 +257,8 @@ protected:
 
   void OnClientError(SoupWebsocketConnection* connection, GError* error) {
     gchar* message = g_strdup(g_strerror(error->code));
-    printf("XR-Server %s-%d connection:%p error code:%d, reason:%s:%s \n",
-           m_name.c_str(), m_connection_count, connection, error->code, message,
+    printf("XR-Server %s connection:%p error code:%d, reason:%s:%s \n",
+           m_name.c_str(), connection, error->code, message,
            error->message);
     g_free(message);
   }
@@ -255,24 +266,43 @@ protected:
     gsize size = 0;
     const gchar* data = (const gchar*)g_bytes_get_data(message, &size);
     printf(
-        "XR-Server %s-%d connection:%p pong %s \n", m_name.c_str(), m_connection_count, connection, data);
+        "XR-Server %s connection:%p pong %s \n", m_name.c_str(), connection, data);
   }
 
   void OnClientClosed(SoupWebsocketConnection* connection) {
-    int alive_count = 0;
+    int alive_count = 0, wrong_alive_count = 0;
+    {
+      std::lock_guard<std::mutex> auto_lock(m_connection_lock);
+      alive_count = m_alive_connections.size() - 1;
+    }
     {
       std::lock_guard<std::mutex> auto_lock(g_lock_alive);
       g_alive_connection_count--;
-      alive_count = g_alive_connection_count;
+      wrong_alive_count = g_alive_connection_count;
     }
-    printf("XR-Server %s-%d connection:%p closed at %s, alive connection:%d \n", m_name.c_str(), m_connection_count, connection, GetTime().c_str(),
-           alive_count);
+    printf("XR-Server %s connection:%p closed at %s, alive connection:%d(wrong:%d) \n", m_name.c_str(), connection, GetTime().c_str(), alive_count,
+        wrong_alive_count);
 
+    auto now = std::chrono::system_clock::now();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                  now.time_since_epoch())
+                  .count();
     {
       std::lock_guard<std::mutex> auto_lock(m_connection_lock);
-      if (m_connection) {
-        g_object_unref(G_OBJECT(m_connection));
-        m_connection = NULL;
+      auto finder = m_alive_connections.find(connection);
+      if (finder != m_alive_connections.end()) {
+        m_alive_connections.erase(finder);
+        g_object_unref(G_OBJECT(connection));
+      } else {
+        printf("XR-Server %s connection:%p not in alive records !!!!!!!!!!!!! \n", m_name.c_str(), connection);
+      }
+
+      for (auto iter = m_alive_connections.begin(); iter != m_alive_connections.end(); iter++) {
+        SoupWebsocketConnection* conn = iter->first;
+        SoupWebsocketState state = soup_websocket_connection_get_state(conn);
+        if (ms - iter->second.borntime > 10000) {
+          printf("XR-Server %s connection:%p has actived for 10s, state:%d, connected at %d !!!!!!!!!!! \n", m_name.c_str(), conn, state, iter->second.connection_index);
+        }
       }
     }
 
@@ -285,15 +315,16 @@ protected:
 
   void OnSendingData() {
     std::lock_guard<std::mutex> auto_lock(m_connection_lock);
-    if (NULL == m_connection) {
+    if (m_alive_connections.empty()) {
       return;
     }
-    SoupWebsocketState state = soup_websocket_connection_get_state(m_connection);
+    SoupWebsocketConnection*  connection = m_alive_connections.begin()->first;
+    SoupWebsocketState state = soup_websocket_connection_get_state(connection);
     if (SOUP_WEBSOCKET_STATE_OPEN != state) {
       return;
     }
     if (m_sender) {
-      m_sender->OnSendingData(m_connection);
+      m_sender->OnSendingData(connection);
     }
   }
   
@@ -302,8 +333,12 @@ protected:
   GMainContext* m_context = nullptr;
 
   SoupServer* m_server = NULL;
-  SoupWebsocketConnection* m_connection = NULL;
   std::mutex m_connection_lock;
+  struct LifeTime {
+    uint64_t borntime;
+    int connection_index;
+  };
+  std::map<SoupWebsocketConnection*, LifeTime> m_alive_connections;
 
   int m_port = 0;
   std::string m_name;
