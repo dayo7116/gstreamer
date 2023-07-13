@@ -8,7 +8,8 @@
 int
 main (int argc, char *argv[])
 {
-  g_setenv("GST_DEBUG", "*:2", TRUE);
+  //1 error, 2 warning, 3 fixme, 4 info, 5 debug, 6 log, 7 trace
+  g_setenv("GST_DEBUG", "*:3", TRUE);
   //return test_audio_src(argc, argv);
   //return test_audio_capture(argc, argv);
   //return play_ogg(argc, argv, "D:/test_audio.ogg");

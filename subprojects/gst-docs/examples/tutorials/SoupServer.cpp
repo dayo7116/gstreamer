@@ -203,7 +203,7 @@ protected:
       return;
     }
     if (m_sender) {
-      //m_sender->OnSendingData(m_connection);
+      m_sender->OnSendingData(m_connection);
     }
   }
   
@@ -228,6 +228,7 @@ protected:
 };
 
 bool CustomSoupServer::Init() {
+
   int argc = 0;
   gst_init(&argc, NULL);
 
@@ -259,11 +260,16 @@ void CustomSoupServer::Run() {
   m_loop = NULL;
 }
 
+int g_video_send_count = 0;
 class VideoDataSender : public DataSender {
 public:
   void OnSendingData(SoupWebsocketConnection* connection) override {
+   int videosz = 1024 * 10;
+    if (++g_video_send_count % 10 == 0) {
+     videosz = 1024 * 400;
+    }
     std::vector<uint8_t> frame_data;
-    frame_data.resize(1024 * 1024 * 4);
+   frame_data.resize(videosz);
 
     // 发送大的数据包
     const size_t chunkSize = 1024 * 8;  // 设置数据块的大小
@@ -303,6 +309,10 @@ public:
     data.resize(200);
     for (int i = 0; i < 200; i++) {
       data[i] = i;
+    }
+    SoupWebsocketState state = soup_websocket_connection_get_state(connection);
+    if (SOUP_WEBSOCKET_STATE_OPEN != state) {
+      return;
     }
     soup_websocket_connection_send_binary(connection, data.data(), data.size());
 

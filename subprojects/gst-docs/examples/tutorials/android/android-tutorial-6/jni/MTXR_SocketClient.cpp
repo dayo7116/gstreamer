@@ -216,6 +216,7 @@ void XRSocketClient::Quit() {
     m_receive_thread->join();
     m_receive_thread = nullptr;
   }
+  Log::Write(Log::Level::Info, Fmt("XR-Socket %s Quit finish", m_name.c_str()));
 }
 
 gboolean XRSocketClient::AsyncQuitFn(gpointer user_data) {
@@ -461,6 +462,6 @@ void XRSocketClient::ReConnect() {
       std::unique_lock<std::mutex> lock(m_reconnect_lock);
       m_reconnect_cv.wait(lock);
     }
-    Log::Write(Log::Level::Info, Fmt("XR-Socket %s reconnect thread stops", m_name.c_str()));
+    Log::Write(Log::Level::Info, Fmt("XR-Socket %s reconnect thread stops, reconnection count:%d", m_name.c_str(), m_reconnect_count));
   });
 }
