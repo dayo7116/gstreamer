@@ -88,6 +88,22 @@ public:
     }
   }
 
+  static void soup_websocket_error_cb(SoupWebsocketConnection* connection,
+                                      GError* error, gpointer user_data) {
+    CustomSoupServer* server = (CustomSoupServer*)user_data;
+    if (server) {
+      server->OnClientError(connection, error);
+    }
+  }
+
+  static void soup_websocket_pong_cb(SoupWebsocketConnection* connection,
+                                     GBytes* message, gpointer user_data) {
+    CustomSoupServer* server = (CustomSoupServer*)user_data;
+    if (server) {
+      server->OnClientPong(connection, message);
+    }
+  }
+
   static void soup_websocket_message_cb(G_GNUC_UNUSED SoupWebsocketConnection* connection,
     SoupWebsocketDataType data_type, GBytes* message, gpointer user_data) {
     CustomSoupServer* server = (CustomSoupServer*)user_data;
@@ -116,11 +132,65 @@ public:
     return G_SOURCE_REMOVE;
   }
 
+  static void soup_server_request_abort(SoupServer* server, SoupMessage* message,
+    SoupClientContext* client,
+    gpointer user_data) {
+    CustomSoupServer* custom_server = (CustomSoupServer*)user_data;
+    if (custom_server) {
+      custom_server->OnRequestAbort(server, message, client);
+    }
+  }
+
+  static void soup_server_request_finished(SoupServer* server, SoupMessage* message,
+    SoupClientContext* client,
+    gpointer user_data) {
+    CustomSoupServer* custom_server = (CustomSoupServer*)user_data;
+    if (custom_server) {
+      custom_server->OnRequestFinish(server, message, client);
+    }
+  }
+  static void soup_server_request_read(SoupServer* server,
+    SoupMessage* message,
+    SoupClientContext* client,
+    gpointer user_data) {
+    CustomSoupServer* custom_server = (CustomSoupServer*)user_data;
+    if (custom_server) {
+      custom_server->OnRequestRead(server, message, client);
+    }
+  }
+  static void soup_server_request_started(SoupServer* server, SoupMessage* message,
+    SoupClientContext* client,
+    gpointer user_data) {
+    CustomSoupServer* custom_server = (CustomSoupServer*)user_data;
+    if (custom_server) {
+      custom_server->OnRequestStarted(server, message, client);
+    }
+  }
+
+
 protected:
+  void OnRequestAbort(SoupServer* server, SoupMessage* message,
+    SoupClientContext* client) {
+   printf("XR-Server server:%s request-aborted client:%p at %s \n", m_name.c_str(), client, GetTime().c_str());
+  }
+  void OnRequestFinish(SoupServer* server, SoupMessage* message,
+                SoupClientContext* client) {
+    printf("XR-Server server:%s request-finished client:%p at %s \n", m_name.c_str(), client, GetTime().c_str());
+
+  }
+  void OnRequestRead(SoupServer* server, SoupMessage* message,
+                     SoupClientContext* client) {
+    //printf("XR-Server server:%s request-read client:%p at %s \n", m_name.c_str(), client, GetTime().c_str());
+  }
+  void OnRequestStarted(SoupServer* server, SoupMessage* message,
+    SoupClientContext* client) {
+    //printf("XR-Server server:%s request-started client:%p at %s \n", m_name.c_str(), client, GetTime().c_str());
+  }
   void OnClientConnected(SoupServer* server, SoupWebsocketConnection* connection,
     const char* path, SoupClientContext* client) {
-    printf("XR-Server server:%s-%d get connection:%p at %s \n",
-           m_name.c_str(), ++m_connection_count, connection, GetTime().c_str());
+    printf("XR-Server server:%s-%d get connection:%p, client:%p at %s \n",
+           m_name.c_str(), ++ m_connection_count, connection,
+           client, GetTime().c_str());
 
     g_signal_connect(G_OBJECT(connection), "closed",
       G_CALLBACK(soup_websocket_closed_cb), this);
@@ -133,6 +203,11 @@ protected:
 
     g_signal_connect(G_OBJECT(connection), "message",
       G_CALLBACK(soup_websocket_message_cb), this);
+
+    g_signal_connect(connection, "error", G_CALLBACK(soup_websocket_error_cb),
+                     this);
+    g_signal_connect(connection, "pong", G_CALLBACK(soup_websocket_pong_cb),
+                     this);
 
     m_sending_loop = true;
     if (!m_send_data_thread) {
@@ -168,6 +243,21 @@ protected:
       break;
     }
   }
+
+  void OnClientError(SoupWebsocketConnection* connection, GError* error) {
+    gchar* message = g_strdup(g_strerror(error->code));
+    printf("XR-Server %s-%d connection:%p error code:%d, reason:%s:%s \n",
+           m_name.c_str(), m_connection_count, connection, error->code, message,
+           error->message);
+    g_free(message);
+  }
+  void OnClientPong(SoupWebsocketConnection* connection, GBytes* message) {
+    gsize size = 0;
+    const gchar* data = (const gchar*)g_bytes_get_data(message, &size);
+    printf(
+        "XR-Server %s-%d connection:%p pong %s \n", m_name.c_str(), m_connection_count, connection, data);
+  }
+
   void OnClientClosed(SoupWebsocketConnection* connection) {
     int alive_count = 0;
     {
@@ -237,6 +327,17 @@ bool CustomSoupServer::Init() {
 
   m_server = soup_server_new(SOUP_SERVER_SERVER_HEADER, m_name.c_str(), NULL);
 
+  g_signal_connect(m_server, "request-aborted", G_CALLBACK(soup_server_request_abort),
+                   this);
+  g_signal_connect(m_server, "request-finished",
+                   G_CALLBACK(soup_server_request_finished),
+                   this);
+  g_signal_connect(m_server, "request-read",
+                   G_CALLBACK(soup_server_request_read),
+                   this);
+  g_signal_connect(m_server, "request-started",
+                   G_CALLBACK(soup_server_request_started), this);
+
   // Set up the request handler
   soup_server_add_websocket_handler(m_server, m_path.c_str(), NULL, NULL,
     soup_websocket_handler, this, NULL);
@@ -244,7 +345,7 @@ bool CustomSoupServer::Init() {
   // Set the port to listen on
   soup_server_listen_all(m_server, m_port, SOUP_SERVER_LISTEN_IPV4_ONLY, NULL);
 
-  printf("XR-Server %s-%d starts: \n", m_name.c_str(), m_connection_count);
+  printf("XR-Server %s,%p-%d starts: \n", m_name.c_str(), m_server, m_connection_count);
   return true;
 }
 void CustomSoupServer::Run() {

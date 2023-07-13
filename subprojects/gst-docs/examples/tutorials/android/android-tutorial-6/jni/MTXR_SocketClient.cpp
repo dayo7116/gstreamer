@@ -319,6 +319,8 @@ XRSocketClient::OnServerConnected(SoupSession *session, GAsyncResult *res) {
                     this);
   g_signal_connect (connection, "error", G_CALLBACK(ConnectionErrorCallback),
                     this);
+  g_signal_connect (connection, "pong", G_CALLBACK(ConnectionPongCallback),
+                    this);
 
   if (m_cancellable) {
     g_object_unref(m_cancellable);
@@ -362,6 +364,18 @@ void XRSocketClient::OnServerClosed(SoupWebsocketConnection *connection) {
   }
 }
 
+void XRSocketClient::ConnectionPongCallback (SoupWebsocketConnection *conn, GBytes *message, gpointer user_data) {
+  XRSocketClient *client = (XRSocketClient *) user_data;
+  if (client) {
+    client->OnPong(conn, message);
+  }
+}
+void XRSocketClient::OnPong(SoupWebsocketConnection *conn, GBytes *message) {
+  gsize size = 0;
+  const gchar* data = (const gchar*)g_bytes_get_data(message, &size);
+  Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s gets pong msg:%s", m_name.c_str(), data));
+}
+
 void XRSocketClient::ConnectionErrorCallback (SoupWebsocketConnection *connection, GError *error, gpointer user_data) {
   XRSocketClient *client = (XRSocketClient *) user_data;
   if (client) {
@@ -369,11 +383,16 @@ void XRSocketClient::ConnectionErrorCallback (SoupWebsocketConnection *connectio
   }
 }
 void XRSocketClient::OnConnectionError(SoupWebsocketConnection *connection, GError *error){
-  gchar* msg = "";
+  gchar* msg = "none";
   if (error && error->message) {
     msg = error->message;
   }
-  Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s gets %p error, code:%d, msg:%s", m_name.c_str(), connection, error ? error->code : -1, msg));
+  GQuark websocket_error_quark = soup_websocket_error_get_quark();
+  const gchar* error_quark = g_quark_to_string(error->domain);
+  const gchar* socket_quark = g_quark_to_string(websocket_error_quark);
+  Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s gets %p error, code:%d, msg:%s, quark:%s:%s",
+                                   m_name.c_str(), connection, error ? error->code : -1, msg,
+                                   error_quark ? error_quark : "null", socket_quark ? socket_quark: "null"));
 }
 
 void XRSocketClient::ServerMessageCallback(SoupWebsocketConnection *conn,

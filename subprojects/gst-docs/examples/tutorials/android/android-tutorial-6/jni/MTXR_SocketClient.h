@@ -76,6 +76,9 @@ protected:
   static void ConnectionErrorCallback (SoupWebsocketConnection *self, GError *error, gpointer user_data);
   void OnConnectionError(SoupWebsocketConnection *connection, GError *error);
 
+  static void ConnectionPongCallback (SoupWebsocketConnection *conn, GBytes *message, gpointer user_data);
+  void OnPong(SoupWebsocketConnection *conn, GBytes *message);
+
   static void ServerMessageCallback(SoupWebsocketConnection *conn,
                                     SoupWebsocketDataType type,
                                     GBytes *message, void *user_data);
