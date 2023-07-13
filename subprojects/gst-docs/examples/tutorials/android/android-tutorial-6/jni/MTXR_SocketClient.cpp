@@ -299,6 +299,8 @@ XRSocketClient::OnServerConnected(SoupSession *session, GAsyncResult *res) {
                     G_CALLBACK(ServerMessageCallback), this);
   g_signal_connect (connection, "closed", G_CALLBACK(ServerClosedCallback),
                     this);
+  g_signal_connect (connection, "error", G_CALLBACK(ConnectionErrorCallback),
+                    this);
 
   if (m_cancellable) {
     g_object_unref(m_cancellable);
@@ -327,8 +329,8 @@ void XRSocketClient::OnServerClosed(SoupWebsocketConnection *connection) {
 
   gushort close_code = soup_websocket_connection_get_close_code(connection);
   const char *close_reason = soup_websocket_connection_get_close_data(connection);
-
-  Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s gets %p closed, state:%d, code:%d, reason:%s", m_name.c_str(), m_connection, state, close_code, close_reason ? close_reason : ""));
+  SoupWebsocketCloseCode closeCode = static_cast<SoupWebsocketCloseCode>(close_code);
+  Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s gets %p closed, state:%d, code:%d:%d, reason:%s", m_name.c_str(), m_connection, state, close_code, closeCode, close_reason ? close_reason : ""));
   if (m_receive_loop) {
     g_main_loop_quit(m_receive_loop);
   }
@@ -337,6 +339,20 @@ void XRSocketClient::OnServerClosed(SoupWebsocketConnection *connection) {
   if (state == SOUP_WEBSOCKET_STATE_CLOSED) {
     //TODO: @dayong 添加重连策略
   }
+}
+
+void XRSocketClient::ConnectionErrorCallback (SoupWebsocketConnection *connection, GError *error, gpointer user_data) {
+  XRSocketClient *client = (XRSocketClient *) user_data;
+  if (client) {
+    client->OnConnectionError(connection, error);
+  }
+}
+void XRSocketClient::OnConnectionError(SoupWebsocketConnection *connection, GError *error){
+  gchar* msg = "";
+  if (error && error->message) {
+    msg = error->message;
+  }
+  Log::Write(Log::Level::Info, Fmt("XR-Socket-Connection %s gets %p error, code:%d, msg:%s", m_name.c_str(), connection, error ? error->code : -1, msg));
 }
 
 void XRSocketClient::ServerMessageCallback(SoupWebsocketConnection *conn,

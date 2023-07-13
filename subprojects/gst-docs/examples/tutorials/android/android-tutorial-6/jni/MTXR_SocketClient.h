@@ -73,6 +73,9 @@ protected:
   ServerClosedCallback(SoupWebsocketConnection *conn, void *user_data);
   void OnServerClosed(SoupWebsocketConnection *connection);
 
+  static void ConnectionErrorCallback (SoupWebsocketConnection *self, GError *error, gpointer user_data);
+  void OnConnectionError(SoupWebsocketConnection *connection, GError *error);
+
   static void ServerMessageCallback(SoupWebsocketConnection *conn,
                                     SoupWebsocketDataType type,
                                     GBytes *message, void *user_data);
