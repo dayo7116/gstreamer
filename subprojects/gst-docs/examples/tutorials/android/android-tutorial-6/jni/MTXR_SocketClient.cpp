@@ -192,6 +192,9 @@ void XRSocketClient::RunLoop() {
 
 void XRSocketClient::Quit() {
   //没有m_context和m_receive_loop时怎么办？
+  while(!m_context && m_sending_loop_running) {
+    Log::Write(Log::Level::Info, Fmt("XR-Socket %s waiting context and loop to start", m_name.c_str()));
+  }
   {
     std::lock_guard<std::mutex> auto_lock(m_resource_lock);
     if (m_context) {
