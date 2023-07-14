@@ -24,6 +24,7 @@
     <ClCompile Include="..\..\AudioSrc.cpp" />
     <ClCompile Include="..\..\basic-tutorial-8.c" />
     <ClCompile Include="..\..\play_ogg.cpp" />
+    <ClCompile Include="..\..\SimpleClient.cpp" />
     <ClCompile Include="..\..\SoupServer.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -31,6 +32,7 @@
     <ClInclude Include="..\..\AudioPlayer.h" />
     <ClInclude Include="..\..\AudioSrc.h" />
     <ClInclude Include="..\..\play_ogg.h" />
+    <ClInclude Include="..\..\SimpleClient.h" />
     <ClInclude Include="..\..\SoupServer.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">

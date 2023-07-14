@@ -121,13 +121,13 @@ check_initialization_complete (CustomData * data)
 
 void start_client() {
     start_video_client("ws://192.168.6.31:8088/video");
-    start_audio_client("ws://192.168.6.31:8089/audio");
-    start_sender_loop();
+//    start_audio_client("ws://192.168.6.31:8089/audio");
+//    start_sender_loop();
 }
 void stop_client() {
     stop_video_client();
-    stop_audio_client();
-    stop_sender_loop();
+//    stop_audio_client();
+//    stop_sender_loop();
 }
 
 static void *
@@ -163,8 +163,8 @@ gst_native_init (JNIEnv * env, jobject thiz)
   GST_DEBUG ("Created GlobalRef for app object at %p", data->app);
   data->sourceid = 0;
 
-    pthread_create (&gst_app_thread, NULL, &app_function, data);
-//      start_client();
+//    pthread_create (&gst_app_thread, NULL, &app_function, data);
+      start_client();
 }
 
 /* Quit the main loop, remove the native thread and free resources */

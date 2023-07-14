@@ -167,6 +167,15 @@ public:
     }
   }
 
+  static gboolean soup_server_close_connection_fn(gpointer user_data) {
+    CustomSoupServer* custom_server = (CustomSoupServer*)user_data;
+    if (custom_server) {
+      custom_server->OnInitiativeClose();
+    }
+
+    return G_SOURCE_REMOVE;
+  }
+
 
 protected:
   void OnRequestAbort(SoupServer* server, SoupMessage* message,
@@ -222,18 +231,41 @@ protected:
                      this);
 
     m_sending_loop = true;
-    if (!m_send_data_thread) {
-      m_send_data_thread =
-        std::make_shared<std::thread>([this]() {
+    //if (!m_send_data_thread) {
+    //  m_send_data_thread =
+    //    std::make_shared<std::thread>([this]() {
 
-          while (m_sending_loop) {
-            g_main_context_invoke(m_context, (GSourceFunc)send_frame_data_async, this);
-            g_usleep(500);
-          }
-        });
-    }
+    //      while (m_sending_loop) {
+    //        g_main_context_invoke(m_context, (GSourceFunc)send_frame_data_async, this);
+    //        g_usleep(500);
+    //      }
+
+    //      /*std::mutex m_reconnect_lock;
+    //      std::condition_variable m_reconnect_cv;
+    //      std::unique_lock<std::mutex> lock(m_reconnect_lock);
+    //      m_reconnect_cv.wait_for(lock, std::chrono::milliseconds(5000),
+    //                              [this] { return false; });
+
+    //      g_main_context_invoke(
+    //          m_context, (GSourceFunc)soup_server_close_connection_fn,
+    //                            this);*/
+
+    //    });
+    //}
 
   }
+  void OnInitiativeClose() {
+    std::lock_guard<std::mutex> auto_lock(m_connection_lock);
+    for (auto iter = m_alive_connections.begin();
+         iter != m_alive_connections.end(); iter++) {
+      SoupWebsocketConnection* conn = iter->first;
+      printf("XR-Server %s close connection:%p by server \n", m_name.c_str(),
+             conn);
+      soup_websocket_connection_close(conn, SOUP_WEBSOCKET_CLOSE_NORMAL,
+                                      "shutdown");
+    }
+  }
+
   void OnMessage(G_GNUC_UNUSED SoupWebsocketConnection* connection,
     SoupWebsocketDataType data_type, GBytes* message) {
 
@@ -469,10 +501,10 @@ void start_soup_server() {
     g_video_server.Start();
     g_video_server.SetSender(g_video_sender);
    });
-  std::thread audio_thread([]() {
+  /*std::thread audio_thread([]() {
     g_audio_server.Start();
     g_audio_server.SetSender(g_audio_sender);
-   });
+   });*/
   while (true)
   {
     g_usleep(1000);

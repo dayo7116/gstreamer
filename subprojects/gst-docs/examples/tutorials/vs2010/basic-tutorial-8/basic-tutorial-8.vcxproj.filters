@@ -7,6 +7,7 @@
     <ClCompile Include="..\..\AudioPlayer.cpp" />
     <ClCompile Include="..\..\play_ogg.cpp" />
     <ClCompile Include="..\..\SoupServer.cpp" />
+    <ClCompile Include="..\..\SimpleClient.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\AudioSrc.h" />
@@ -14,5 +15,6 @@
     <ClInclude Include="..\..\AudioPlayer.h" />
     <ClInclude Include="..\..\play_ogg.h" />
     <ClInclude Include="..\..\SoupServer.h" />
+    <ClInclude Include="..\..\SimpleClient.h" />
   </ItemGroup>
 </Project>
