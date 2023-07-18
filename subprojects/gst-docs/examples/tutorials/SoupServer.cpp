@@ -1,8 +1,5 @@
 #include "SoupServer.h"
 
-#include <gst/gst.h>
-#include <gobject\gsignal.h>
-
 #include <libsoup/soup.h>
 
 #include <algorithm>
@@ -387,7 +384,6 @@ protected:
 bool CustomSoupServer::Init() {
 
   int argc = 0;
-  gst_init(&argc, NULL);
 
   m_context = g_main_context_default();
   m_loop = g_main_loop_new(m_context, false);

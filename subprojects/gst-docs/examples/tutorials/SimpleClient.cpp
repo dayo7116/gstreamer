@@ -13,7 +13,7 @@ gboolean ServerConnectedCallback(SoupSession* session, GAsyncResult* res,
                                  void* user_data) {
   GError* error = NULL;
   g_connection = soup_session_websocket_connect_finish(session, res, &error);
-
+  printf("connection established \n ");
   soup_websocket_connection_set_keepalive_interval(g_connection, 1);
 
   g_thread = new std::thread([]() {
@@ -43,7 +43,7 @@ void test_simple_client() {
         SOUP_SESSION_SSL_STRICT, TRUE, SOUP_SESSION_HTTPS_ALIASES,
         https_aliases, NULL);
     SoupMessage* message =
-        soup_message_new(SOUP_METHOD_GET, "ws://192.168.6.31:8088/video");
+        soup_message_new(SOUP_METHOD_GET, "ws://192.168.4.144:8088/video");
 
     soup_session_websocket_connect_async(
         session, message, NULL, NULL, NULL,
@@ -54,6 +54,8 @@ void test_simple_client() {
     if (g_connection) {
       soup_websocket_connection_close(g_connection, SOUP_WEBSOCKET_CLOSE_NORMAL,
                                       "client close");
+
+      printf("connection closed \n ");
     }
 
     g_object_unref(message);
