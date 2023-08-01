@@ -6,6 +6,7 @@
 #include <pthread.h>
 
 #include "AudioPlayer.h"
+#include "DecodeAPI.h"
 
 GST_DEBUG_CATEGORY_STATIC (debug_category);
 #define GST_CAT_DEFAULT debug_category
@@ -164,7 +165,8 @@ gst_native_init (JNIEnv * env, jobject thiz)
   data->sourceid = 0;
 
 //    pthread_create (&gst_app_thread, NULL, &app_function, data);
-      start_client();
+//      start_client();
+  test_decode();
 }
 
 /* Quit the main loop, remove the native thread and free resources */

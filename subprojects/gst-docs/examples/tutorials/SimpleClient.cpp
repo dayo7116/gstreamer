@@ -21,7 +21,7 @@ gboolean ServerConnectedCallback(SoupSession* session, GAsyncResult* res,
     std::condition_variable g_cv;
 
     std::unique_lock<std::mutex> lock(g_lock);
-    g_cv.wait_for(lock, std::chrono::milliseconds(10000), [] { return false; });
+    g_cv.wait_for(lock, std::chrono::milliseconds(3000), [] { return false; });
 
     if (g_loop) {
       g_main_loop_quit(g_loop);

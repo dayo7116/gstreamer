@@ -9,9 +9,10 @@ include $(PREBUILT_SHARED_LIBRARY)
 include $(CLEAR_VARS)
 
 LOCAL_MODULE    := tutorial-6
-LOCAL_SRC_FILES := tutorial-6.c dummy.cpp AudioPlayer.cpp MTXR_SocketClient.cpp
+LOCAL_SRC_FILES := tutorial-6.c dummy.cpp AudioPlayer.cpp MTXR_SocketClient.cpp DecodeAPI.cpp VideoDecoder.cpp Logger.cpp
+# LOCAL_STATIC_LIBRARIES := avcodec avformat avfilter avutil swresample
 LOCAL_SHARED_LIBRARIES := gstreamer_android Oboe
-LOCAL_LDLIBS := -llog -landroid
+LOCAL_LDLIBS := -llog -landroid -lmediandk
 include $(BUILD_SHARED_LIBRARY)
 
 LOCAL_C_INCLUDES += $(OBOE_SDK_ROOT)/prefab/modules/oboe/include

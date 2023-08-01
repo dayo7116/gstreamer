@@ -1,76 +1,165 @@
-#include <gst/gst.h>
-
-#ifdef __APPLE__
-#include <TargetConditionals.h>
-#endif
-
-int
-tutorial_main (int argc, char *argv[])
-{
-  GstElement *pipeline, *bin, *equalizer, *convert, *sink;
-  GstPad *pad, *ghost_pad;
-  GstBus *bus;
-  GstMessage *msg;
-
-  /* Initialize GStreamer */
-  gst_init (&argc, &argv);
-
-  /* Build the pipeline */
-  pipeline =
-      gst_parse_launch
-      ("playbin uri=https://www.freedesktop.org/software/gstreamer-sdk/data/media/sintel_trailer-480p.webm",
-      NULL);
-
-  /* Create the elements inside the sink bin */
-  equalizer = gst_element_factory_make ("equalizer-3bands", "equalizer");
-  convert = gst_element_factory_make ("audioconvert", "convert");
-  sink = gst_element_factory_make ("autoaudiosink", "audio_sink");
-  if (!equalizer || !convert || !sink) {
-    g_printerr ("Not all elements could be created.\n");
-    return -1;
+/*
+ * Copyright (c) 2001 Fabrice Bellard
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
+/**
+ * @file
+ * video encoding with libavcodec API example
+ *
+ * @example encode_video.c
+ */
+#include <libavcodec/avcodec.h>
+#include <libavutil/imgutils.h>
+#include <libavutil/opt.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+    static void encode(AVCodecContext *enc_ctx, AVFrame *frame, AVPacket *pkt,
+                   FILE *outfile) {
+  int ret;
+  /* send the frame to the encoder */
+  if (frame) printf("Send frame %3" PRId64 "\n", frame->pts);
+  ret = avcodec_send_frame(enc_ctx, frame);
+  if (ret < 0) {
+    fprintf(stderr, "Error sending a frame for encoding\n");
+    exit(1);
   }
-
-  /* Create the sink bin, add the elements and link them */
-  bin = gst_bin_new ("audio_sink_bin");
-  gst_bin_add_many (GST_BIN (bin), equalizer, convert, sink, NULL);
-  gst_element_link_many (equalizer, convert, sink, NULL);
-  pad = gst_element_get_static_pad (equalizer, "sink");
-  ghost_pad = gst_ghost_pad_new ("sink", pad);
-  gst_pad_set_active (ghost_pad, TRUE);
-  gst_element_add_pad (bin, ghost_pad);
-  gst_object_unref (pad);
-
-  /* Configure the equalizer */
-  g_object_set (G_OBJECT (equalizer), "band1", (gdouble) - 24.0, NULL);
-  g_object_set (G_OBJECT (equalizer), "band2", (gdouble) - 24.0, NULL);
-
-  /* Set playbin2's audio sink to be our sink bin */
-  g_object_set (GST_OBJECT (pipeline), "audio-sink", bin, NULL);
-
-  /* Start playing */
-  gst_element_set_state (pipeline, GST_STATE_PLAYING);
-
-  /* Wait until error or EOS */
-  bus = gst_element_get_bus (pipeline);
-  msg =
-      gst_bus_timed_pop_filtered (bus, GST_CLOCK_TIME_NONE,
-      GST_MESSAGE_ERROR | GST_MESSAGE_EOS);
-
-  /* Free resources */
-  if (msg != NULL)
-    gst_message_unref (msg);
-  gst_object_unref (bus);
-  gst_element_set_state (pipeline, GST_STATE_NULL);
-  gst_object_unref (pipeline);
-  return 0;
+  int b_out = 0;
+  while (ret >= 0) {
+    ret = avcodec_receive_packet(enc_ctx, pkt);
+    if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+      
+      if (b_out > 0) {
+        fflush(outfile);
+      }
+      return;
+    }
+    else if (ret < 0) {
+      fprintf(stderr, "Error during encoding\n");
+      exit(1);
+    }
+    printf("Write packet %3" PRId64 " (size=%5d)\n", pkt->pts, pkt->size);
+    fwrite(pkt->data, 1, pkt->size, outfile);
+    b_out = 1;
+    av_packet_unref(pkt);
+  }
 }
+int main(int argc, char **argv) {
+  const char *filename, *codec_name;
+  const AVCodec *codec;
+  AVCodecContext *c = NULL;
+  int i, ret, x, y;
+  FILE *f;
+  AVFrame *frame;
+  AVPacket *pkt;
+  uint8_t endcode[] = {0, 0, 1, 0xb7};
 
-int
-main (int argc, char *argv[])
-{
-#if defined(__APPLE__) && TARGET_OS_MAC && !TARGET_OS_IPHONE
-  return gst_macos_main (tutorial_main, argc, argv, NULL);
-#else
-  return tutorial_main (argc, argv);
-#endif
+  filename = "D:/test.h264";
+  codec_name = "";
+  /* find the mpeg1video encoder */
+  codec = (AVCodec *)avcodec_find_encoder(AV_CODEC_ID_H264);
+  if (!codec) {
+    fprintf(stderr, "Codec '%s' not found\n", codec_name);
+    exit(1);
+  }
+  c = avcodec_alloc_context3(codec);
+  if (!c) {
+    fprintf(stderr, "Could not allocate video codec context\n");
+    exit(1);
+  }
+  pkt = av_packet_alloc();
+  if (!pkt) exit(1);
+  /* put sample parameters */
+  c->bit_rate = 400000;
+  /* resolution must be a multiple of two */
+  c->width = 352;
+  c->height = 288;
+  /* frames per second */
+  c->time_base = (AVRational){1, 25};
+  c->framerate = (AVRational){25, 1};
+  /* emit one intra frame every ten frames
+   * check frame pict_type before passing frame
+   * to encoder, if frame->pict_type is AV_PICTURE_TYPE_I
+   * then gop_size is ignored and the output of encoder
+   * will always be I frame irrespective to gop_size
+   */
+  c->gop_size = 10;
+  c->max_b_frames = 0;
+  c->pix_fmt = AV_PIX_FMT_YUV420P;
+  if (codec->id == AV_CODEC_ID_H264)
+    av_opt_set(c->priv_data, "preset", "slow", 0);
+  /* open it */
+  ret = avcodec_open2(c, codec, NULL);
+  if (ret < 0) {
+    fprintf(stderr, "Could not open codec: %s\n", av_err2str(ret));
+    exit(1);
+  }
+  f = fopen(filename, "wb");
+  if (!f) {
+    fprintf(stderr, "Could not open %s\n", filename);
+    exit(1);
+  }
+  frame = av_frame_alloc();
+  if (!frame) {
+    fprintf(stderr, "Could not allocate video frame\n");
+    exit(1);
+  }
+  frame->format = c->pix_fmt;
+  frame->width = c->width;
+  frame->height = c->height;
+  ret = av_frame_get_buffer(frame, 32);
+  if (ret < 0) {
+    fprintf(stderr, "Could not allocate the video frame data\n");
+    exit(1);
+  }
+  /* encode 1 second of video */
+  for (i = 0; i < 25; i++) {
+    fflush(stdout);
+    /* make sure the frame data is writable */
+    ret = av_frame_make_writable(frame);
+    if (ret < 0) exit(1);
+    /* prepare a dummy image */
+    /* Y */
+    for (y = 0; y < c->height; y++) {
+      for (x = 0; x < c->width; x++) {
+        frame->data[0][y * frame->linesize[0] + x] = x + y + i * 3;
+      }
+    }
+    /* Cb and Cr */
+    for (y = 0; y < c->height / 2; y++) {
+      for (x = 0; x < c->width / 2; x++) {
+        frame->data[1][y * frame->linesize[1] + x] = 128 + y + i * 2;
+        frame->data[2][y * frame->linesize[2] + x] = 64 + x + i * 5;
+      }
+    }
+    frame->pts = 0;
+    /* encode the image */
+    encode(c, frame, pkt, f);
+  }
+  /* flush the encoder */
+  encode(c, NULL, pkt, f);
+  /* add sequence end code to have a real MPEG file */
+  fwrite(endcode, 1, sizeof(endcode), f);
+  fclose(f);
+  avcodec_free_context(&c);
+  av_frame_free(&frame);
+  av_packet_free(&pkt);
+  return 0;
 }

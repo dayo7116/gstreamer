@@ -144,6 +144,13 @@ std::string get_default_device() {
   for (GList* iterator = devices; iterator != NULL; iterator = iterator->next) {
     GstDevice* device = GST_DEVICE(iterator->data);
 
+    GstElement* elem = gst_device_create_element(device, nullptr);
+    if (elem) {
+      GstStateChangeReturn result = gst_element_set_state(elem, GST_STATE_NULL);
+
+      printf("device state set result %d \n", result);
+    }
+    
     GstStructure* properties = gst_device_get_properties(device);
     if (!properties) {
       continue;
@@ -199,15 +206,30 @@ int test_audio_capture(int argc, char* argv[])
   gboolean res;
   GstMapInfo map;
 
-  g_setenv("GST_DEBUG", "*:1", TRUE);
+  //g_setenv("GST_DEBUG", "*:1", TRUE);
 
-  gst_init(&argc, &argv);
+  int argcc = 0;
+  gst_init(NULL, NULL);
 
   if (argc != 2) {
     g_print("usage: %s <uri>\n Writes snapshot.png in the current directory\n",
       argv[0]);
     //exit(-1);
   }
+
+
+    std::string device_name = get_default_device();
+
+   /* GError* errorDevice;
+    GstElement* element = gst_element_make_from_uri(
+        GST_URI_SRC, device_name.c_str(), "source", &errorDevice);
+    if (!element) {
+      g_print("无法打开设备: %s\n", device_name.c_str());
+    }
+
+    g_print("设备打开成功: %s\n", device_name.c_str());
+
+    gst_object_unref(GST_OBJECT(element));*/
 
   //g_player = new PLAY::AudioPlayer();
 
@@ -216,7 +238,7 @@ int test_audio_capture(int argc, char* argv[])
   pipeline = gst_pipeline_new("audio-pipeline");
 
   source = gst_element_factory_make("wasapi2src", "audio-source");
-  g_object_set(G_OBJECT(source), "device", get_default_device().c_str() , "loopback", true, NULL);
+  g_object_set(G_OBJECT(source), "device", device_name.c_str() , "loopback", true, NULL);
 
   convert = gst_element_factory_make("audioconvert", "audio-convert");
 
